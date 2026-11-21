@@ -77,10 +77,10 @@ const copyZh: Copy = {
   selfPreview: "本机预览",
   share: "共享屏幕",
   stopShare: "停止共享",
-  camera: "摄像头",
-  cameraOff: "关闭摄像头",
-  mic: "麦克风",
-  micOff: "关闭麦克风",
+  camera: "关闭摄像头",
+  cameraOff: "打开摄像头",
+  mic: "关闭麦克风",
+  micOff: "打开麦克风",
   chat: "聊天",
   chatPlaceholder: "说点什么…",
   send: "发送",
@@ -110,10 +110,10 @@ const copyEn: Copy = {
   selfPreview: "Your preview",
   share: "Share screen",
   stopShare: "Stop sharing",
-  camera: "Camera",
-  cameraOff: "Camera off",
-  mic: "Microphone",
-  micOff: "Mic off",
+  camera: "Turn camera off",
+  cameraOff: "Turn camera on",
+  mic: "Mute mic",
+  micOff: "Unmute mic",
   chat: "Chat",
   chatPlaceholder: "Say something…",
   send: "Send",
@@ -153,7 +153,7 @@ function Lobby({ locale, copy }: { locale: "zh" | "en"; copy: Copy }) {
     <div className="flex h-full w-full items-center justify-center px-5">
       <form className="glass w-full max-w-md rounded-3xl p-8" onSubmit={submit}>
         <div className="flex items-center gap-3">
-          <img alt="" aria-hidden="true" className="h-20 w-auto drop-shadow-[0_10px_24px_rgba(0,0,0,0.6)]" src="/art/mascot.webp" />
+          <img alt="" aria-hidden="true" className="h-24 w-auto drop-shadow-[0_10px_24px_rgba(0,0,0,0.6)]" src="/art/mascot.webp" />
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-white">{copy.lobbyTitle}</h1>
             <p className="mt-1 text-xs leading-relaxed text-sky-100/50">{copy.lobbyHint}</p>

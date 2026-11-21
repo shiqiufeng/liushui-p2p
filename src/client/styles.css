@@ -1102,8 +1102,8 @@ html[data-native-scrollbars="true"]::-webkit-scrollbar {
 .liushui-mascot-bubble {
   position: relative;
   margin-bottom: 26px;
-  max-width: 208px;
-  padding: 11px 26px 11px 13px;
+  max-width: 244px;
+  padding: 12px 24px 12px 14px;
   border: 1px solid rgb(255 255 255 / 0.1);
   border-radius: 14px 14px 14px 4px;
   background: linear-gradient(160deg, rgb(12 20 30 / 0.86), rgb(6 10 16 / 0.78));
@@ -1120,8 +1120,8 @@ html[data-native-scrollbars="true"]::-webkit-scrollbar {
 
 .liushui-mascot-bubble p {
   margin: 0;
-  font-size: 11.5px;
-  line-height: 1.65;
+  font-size: 12px;
+  line-height: 1.72;
   letter-spacing: 0.01em;
   color: rgb(226 240 250 / 0.92);
 }
