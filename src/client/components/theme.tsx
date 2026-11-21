@@ -17,7 +17,8 @@ export type ThemeId =
   | "lunar-ash"
   | "verdant-relay"
   | "coral-ping"
-  | "citron-relay";
+  | "citron-relay"
+  | "sakura-link";
 
 export type AppTheme = {
   accent: string;
@@ -119,6 +120,15 @@ export const appThemes: readonly AppTheme[] = [
     mid: "#71630f",
     highlight: "#ffe86a",
     accent: "#ffe86a",
+  },
+  {
+    id: "sakura-link",
+    name: { en: "Sakura Link", zh: "樱线" },
+    description: { en: "Pink on the outside, AES on the inside.", zh: "外面是樱色，里面是 AES" },
+    deep: "#0b060f",
+    mid: "#5c2547",
+    highlight: "#ffd0e6",
+    accent: "#ff9ecb",
   },
 ] as const;
 

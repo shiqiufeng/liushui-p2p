@@ -2360,8 +2360,9 @@ function RemoteControlViewport({ stream, children }: { stream: MediaStream | nul
             playsInline
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center px-4 text-center text-sm font-medium tracking-[0.04em] text-sky-100/60">
-            已获得控制授权，等待对方共享屏幕…
+          <div className="liushui-mascot-wait">
+            <img alt="" aria-hidden="true" src="/art/mascot.webp" />
+            <p>已获得控制授权，等待对方共享屏幕…</p>
           </div>
         )}
         {children}

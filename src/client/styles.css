@@ -955,3 +955,243 @@ html[data-native-scrollbars="true"]::-webkit-scrollbar {
     transition: none !important;
   }
 }
+
+/* ============================================================
+   极简环境光背景
+   ------------------------------------------------------------
+   替代原来的 WebGL 流体：没有 canvas 常驻渲染，没有大面积高饱和
+   噪声，只留一层深色底 + 两团极低透明度的柔光 + 细网格 + 颗粒。
+   全部颜色取自主题令牌，切换配色时整屏跟着变。
+   ============================================================ */
+
+.liushui-ambient {
+  background-color: var(--ambient-deep, #02040b);
+}
+
+.liushui-ambient-base {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 90% at 50% -20%, color-mix(in srgb, var(--ambient-mid, #11315e) 42%, transparent) 0%, transparent 62%),
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--ambient-deep, #02040b) 88%, black) 0%,
+      color-mix(in srgb, var(--ambient-deep, #02040b) 96%, black) 46%,
+      color-mix(in srgb, var(--ambient-deep, #02040b) 78%, black) 100%);
+}
+
+.liushui-ambient-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(72px);
+  opacity: 0.5;
+  will-change: transform;
+}
+
+.liushui-ambient-glow--a {
+  top: -28vmax;
+  left: 50%;
+  width: 88vmax;
+  height: 62vmax;
+  margin-left: -44vmax;
+  background: radial-gradient(circle at 50% 50%,
+    color-mix(in srgb, var(--ambient-accent, #67d5ff) 26%, transparent) 0%,
+    color-mix(in srgb, var(--ambient-accent, #67d5ff) 8%, transparent) 42%,
+    transparent 70%);
+  animation: liushui-ambient-drift-a 46s ease-in-out infinite alternate;
+}
+
+.liushui-ambient-glow--b {
+  right: -18vmax;
+  bottom: -26vmax;
+  width: 66vmax;
+  height: 58vmax;
+  background: radial-gradient(circle at 50% 50%,
+    color-mix(in srgb, var(--ambient-highlight, #8defff) 18%, transparent) 0%,
+    color-mix(in srgb, var(--ambient-mid, #11315e) 22%, transparent) 46%,
+    transparent 72%);
+  animation: liushui-ambient-drift-b 62s ease-in-out infinite alternate;
+}
+
+@keyframes liushui-ambient-drift-a {
+  from { transform: translate3d(-4%, 0, 0) scale(1); }
+  to   { transform: translate3d(6%, 3%, 0) scale(1.08); }
+}
+
+@keyframes liushui-ambient-drift-b {
+  from { transform: translate3d(0, 2%, 0) scale(1.04); }
+  to   { transform: translate3d(-5%, -3%, 0) scale(1); }
+}
+
+.liushui-ambient-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 0.028) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.028) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: radial-gradient(ellipse 78% 62% at 50% 34%, black 8%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse 78% 62% at 50% 34%, black 8%, transparent 78%);
+  opacity: 0.75;
+}
+
+.liushui-ambient-grain {
+  position: absolute;
+  inset: -50%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  opacity: 0.045;
+  mix-blend-mode: overlay;
+}
+
+.liushui-ambient-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 92% 78% at 50% 46%, transparent 34%, rgb(0 0 0 / 0.62) 100%);
+}
+
+.liushui-ambient-hairline {
+  position: absolute;
+  top: 0;
+  right: 12%;
+  left: 12%;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent,
+    color-mix(in srgb, var(--ambient-highlight, #8defff) 42%, transparent),
+    transparent);
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liushui-ambient-glow {
+    animation: none !important;
+  }
+}
+
+/* ============================================================
+   二次元向导（首页角落）
+   ============================================================ */
+
+.liushui-mascot {
+  position: absolute;
+  bottom: clamp(52px, 7vh, 86px);
+  left: clamp(16px, 3vw, 42px);
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  user-select: none;
+}
+
+.liushui-mascot-art {
+  width: 112px;
+  height: auto;
+  filter: drop-shadow(0 16px 26px rgb(0 0 0 / 0.55)) drop-shadow(0 0 22px color-mix(in srgb, var(--liushui-accent) 22%, transparent));
+  animation: liushui-mascot-float 7s ease-in-out infinite;
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.liushui-mascot:hover .liushui-mascot-art {
+  transform: translateY(-4px) scale(1.03);
+}
+
+@keyframes liushui-mascot-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+.liushui-mascot-bubble {
+  position: relative;
+  margin-bottom: 26px;
+  max-width: 208px;
+  padding: 11px 26px 11px 13px;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 14px 14px 14px 4px;
+  background: linear-gradient(160deg, rgb(12 20 30 / 0.86), rgb(6 10 16 / 0.78));
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.06);
+  backdrop-filter: blur(16px) saturate(140%);
+  opacity: 0.86;
+  transition: opacity 0.3s, transform 0.3s;
+}
+
+.liushui-mascot-bubble.is-hovered {
+  opacity: 1;
+  transform: translateY(-2px);
+}
+
+.liushui-mascot-bubble p {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.65;
+  letter-spacing: 0.01em;
+  color: rgb(226 240 250 / 0.92);
+}
+
+.liushui-mascot-name {
+  display: block;
+  margin-top: 5px;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--liushui-accent) 78%, white);
+  opacity: 0.72;
+}
+
+.liushui-mascot-close {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgb(255 255 255 / 0.34);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.18s, background 0.18s;
+}
+
+.liushui-mascot-close:hover {
+  background: rgb(255 255 255 / 0.08);
+  color: rgb(255 255 255 / 0.8);
+}
+
+@media (max-width: 1100px), (max-height: 700px) {
+  .liushui-mascot {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liushui-mascot-art {
+    animation: none !important;
+  }
+}
+
+/* 远程控制等待态 */
+.liushui-mascot-wait {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  text-align: center;
+}
+
+.liushui-mascot-wait img {
+  width: 132px;
+  height: auto;
+  opacity: 0.9;
+  filter: drop-shadow(0 14px 30px rgb(0 0 0 / 0.6));
+  animation: liushui-mascot-float 6s ease-in-out infinite;
+}
+
+.liushui-mascot-wait p {
+  margin: 0;
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  color: rgb(186 230 253 / 0.66);
+}

@@ -43,9 +43,12 @@ type SlotState = {
   lastSeenAt?: number;
 };
 
+type RoomMode = "duo" | "group";
+
 type RoomState = {
   version: 2;
   epoch: number;
+  mode: RoomMode;
   offererSlotId: string | null;
   slots: SlotState[];
 };
@@ -58,6 +61,8 @@ type InactiveConnection = {
 type ParsedMessage = {
   type?: string;
   mode?: string;
+  roomMode?: unknown;
+  to?: unknown;
   resumeToken?: unknown;
   token?: unknown;
   payload?: unknown;
@@ -66,7 +71,8 @@ type ParsedMessage = {
   peerSessionId?: unknown;
 };
 
-const MAX_PEERS = 2;
+const DUO_PEERS = 2;
+const GROUP_PEERS = 6;
 const MAX_PENDING_SOCKETS = 8;
 const MAX_MESSAGE_BYTES = 128 * 1024;
 const HANDSHAKE_TIMEOUT_MS = 5_000;
@@ -74,7 +80,15 @@ const STORAGE_KEY = "room-state-v2";
 const textEncoder = new TextEncoder();
 
 function emptyState(): RoomState {
-  return { version: 2, epoch: 0, offererSlotId: null, slots: [] };
+  return { version: 2, epoch: 0, mode: "duo", offererSlotId: null, slots: [] };
+}
+
+function isRoomMode(value: unknown): value is RoomMode {
+  return value === "duo" || value === "group";
+}
+
+function capacityFor(state: RoomState): number {
+  return state.mode === "group" ? GROUP_PEERS : DUO_PEERS;
 }
 
 function isHelloMode(value: unknown): value is HelloMode {
@@ -119,7 +133,7 @@ function validSlot(value: unknown): value is SlotState {
 
 function normalizeState(value: unknown): RoomState {
   if (!isRecord(value) || value.version !== 2 || !Array.isArray(value.slots)) return emptyState();
-  const slots = value.slots.filter(validSlot).slice(0, MAX_PEERS).map((slot) => {
+  const slots = value.slots.filter(validSlot).slice(0, GROUP_PEERS).map((slot) => {
     const { lastSeenAt: _lastSeenAt, ...normalizedSlot } = slot;
     return normalizedSlot;
   });
@@ -129,6 +143,7 @@ function normalizeState(value: unknown): RoomState {
   return {
     version: 2,
     epoch: typeof value.epoch === "number" && Number.isFinite(value.epoch) ? Math.max(0, Math.floor(value.epoch)) : 0,
+    mode: isRoomMode(value.mode) ? value.mode : "duo",
     offererSlotId,
     slots,
   };
@@ -265,7 +280,8 @@ export class Room extends DurableObject<Env> {
           const heartbeatProtocol = supportsAutoResponseHeartbeat(parsed.capabilities)
             ? "auto-response-v3"
             : "legacy-json";
-          await this.admit(socket, mode, resumeToken, attachment, heartbeatProtocol);
+          const roomMode = isRoomMode(parsed.roomMode) ? parsed.roomMode : undefined;
+          await this.admit(socket, mode, resumeToken, attachment, heartbeatProtocol, roomMode);
           return;
         }
         // Preserve clients that raced their first signal ahead of the legacy ping.
@@ -382,6 +398,7 @@ export class Room extends DurableObject<Env> {
     resumeToken: string | null,
     pendingAttachment: SocketAttachment,
     heartbeatProtocol: SignalingHeartbeatProtocol,
+    requestedRoomMode?: RoomMode,
   ): Promise<{ state: RoomState; slot: SlotState } | null> {
     let resumeTokenForClient: string | null = null;
     const now = Date.now();
@@ -429,8 +446,27 @@ export class Room extends DurableObject<Env> {
         state.epoch += 1;
       }
     } else {
+      // 房间模式由第一个进入的人决定：双人房与多人房不能混用，
+      // 否则两边对「还剩几个位置」的理解不一致，信令也会串台。
+      // 旧客户端不带 roomMode，一律按双人房处理。
+      const joiningMode: RoomMode = requestedRoomMode ?? "duo";
+      if (state.slots.length > 0 && joiningMode !== state.mode) {
+        this.sendErrorAndClose(
+          socket,
+          "mode-mismatch",
+          state.mode === "group"
+            ? "This room is in group mode."
+            : "This room is in two-person mode.",
+          4_022,
+        );
+        return null;
+      }
+      if (state.slots.length === 0 && joiningMode !== state.mode) {
+        state.mode = joiningMode;
+        state.epoch += 1;
+      }
       const hasDisconnectedLease = state.slots.some((candidate) => candidate.connectionId === null && candidate.leaseExpiresAt !== null);
-      if (state.slots.length >= MAX_PEERS) {
+      if (state.slots.length >= capacityFor(state)) {
         if (hasDisconnectedLease) {
           const retryAfterMs = this.retryAfterMs(state, now);
           this.sendErrorAndClose(socket, "room-reserved", "A participant is reconnecting to this room.", 4_019, retryAfterMs);
@@ -501,6 +537,8 @@ export class Room extends DurableObject<Env> {
       offererSlotId: state.offererSlotId,
       isInitiator: state.offererSlotId === slot.slotId,
       peerCount: activeSlots.length,
+      capacity: capacityFor(state),
+      roomMode: state.mode,
       resumed,
       ...(heartbeatProtocol === "auto-response-v3" ? { heartbeatProtocol } : {}),
     });
@@ -537,8 +575,8 @@ export class Room extends DurableObject<Env> {
     if (typeof parsed.epoch === "number" && parsed.epoch !== state.epoch) return;
     if (parsed.peerSessionId !== undefined && parsed.peerSessionId !== sender.peerSessionId) return;
 
-    this.broadcastToActive(state, {
-      type: "signal",
+    const envelope = {
+      type: "signal" as const,
       from: sender.slotId,
       fromSlotId: sender.slotId,
       peerId: sender.slotId,
@@ -546,7 +584,19 @@ export class Room extends DurableObject<Env> {
       epoch: state.epoch,
       offererSlotId: state.offererSlotId,
       payload: parsed.payload,
-    }, socket);
+    };
+
+    // 多人房里每条 offer/answer/ICE 只对某一个对端有意义，
+    // 广播会让第三个浏览器也去 setRemoteDescription，直接协商崩掉。
+    const targetSlotId = asString(parsed.to, 64);
+    if (targetSlotId) {
+      const target = state.slots.find((candidate) => candidate.slotId === targetSlotId && candidate.connectionId !== null);
+      const targetSocket = target ? this.socketForSlot(target) : null;
+      if (targetSocket) this.send(targetSocket, envelope);
+      return;
+    }
+
+    this.broadcastToActive(state, envelope, socket);
   }
 
   private async currentSlot(socket: WebSocket, attachment: SocketAttachment): Promise<{ state: RoomState; slot: SlotState } | null> {
@@ -656,8 +706,8 @@ export class Room extends DurableObject<Env> {
       state.epoch += 1;
       changed = true;
     }
-    if (state.slots.length > MAX_PEERS) {
-      state.slots = state.slots.slice(0, MAX_PEERS);
+    if (state.slots.length > capacityFor(state)) {
+      state.slots = state.slots.slice(0, capacityFor(state));
       changed = true;
     }
     if (!state.offererSlotId || !state.slots.some((slot) => slot.slotId === state.offererSlotId)) {

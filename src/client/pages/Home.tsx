@@ -43,6 +43,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog";
+import { HomeMascot } from "../components/HomeMascot";
 import { LetterCascade } from "../components/ui/letter-cascade";
 import { Signature } from "../components/ui/signature";
 import { TextRepel } from "../components/ui/text-repel";
@@ -1023,6 +1024,19 @@ export default function Home({ locale = "en" }: { locale?: HomeLocale }) {
             onLanguageClick={() => setLanguageDialogOpen(true)}
             onSettingsClick={() => setSettingsDialogOpen(true)}
           />
+          <div className="mt-6 flex justify-center">
+            <button
+              className="group inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-[11.5px] tracking-[0.04em] text-sky-100/60 backdrop-blur transition hover:border-white/20 hover:bg-white/[0.08] hover:text-sky-100/90"
+              onClick={() => {
+                trackInsightEvent("group_lobby_opened", { locale });
+                void navigate({ to: locale === "zh" ? "/zh/group" : "/en/group" });
+              }}
+              type="button"
+            >
+              <span className="liushui-pill-dot" />
+              {locale === "zh" ? "多人房 · 最多 6 人同屏" : "Group room · up to 6 people"}
+            </button>
+          </div>
         </div>
         <LanguageDialog
           locale={locale}
@@ -1049,6 +1063,7 @@ export default function Home({ locale = "en" }: { locale?: HomeLocale }) {
           onOpenChange={setDiagnosticsDialogOpen}
           open={isDiagnosticsDialogOpen}
         />
+        <HomeMascot locale={locale} />
         <div
           aria-hidden="true"
           className="liushui-home-status pointer-events-none absolute inset-x-0 bottom-6 z-10 items-center justify-center gap-2 px-4"

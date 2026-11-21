@@ -37,6 +37,7 @@ type command struct {
 
 var (
 	agentToken string
+	agentPort  int
 	activeConn sync.Mutex
 )
 
@@ -130,6 +131,7 @@ func main() {
 	flag.Parse()
 
 	agentToken = randomToken()
+	agentPort = *port
 	width, height := screenSize()
 	log.Printf("流水P2P 被控端已启动 | 屏幕 %dx%d | 平台 %s", width, height, runtime.GOOS)
 
@@ -140,6 +142,7 @@ func main() {
 		fmt.Fprintf(w, `{"ok":true,"platform":%q,"width":%d,"height":%d}`, runtime.GOOS, width, height)
 	})
 	mux.HandleFunc("/control", handleControl)
+	mux.Handle("/", servePanel(strings.TrimRight(*host, "/")))
 
 	address := fmt.Sprintf("127.0.0.1:%d", *port)
 	listener, err := net.Listen("tcp", address)
@@ -147,18 +150,24 @@ func main() {
 		log.Fatalf("端口 %d 已被占用：%v", *port, err)
 	}
 
-	target := strings.TrimRight(*host, "/") + "/zh"
+	base := strings.TrimRight(*host, "/") + "/zh"
+	target := base + fmt.Sprintf("?agentPort=%d&agentToken=%s", *port, agentToken)
 	if *room != "" {
-		target += "/room/" + *room
+		target = base + "/room/" + *room + fmt.Sprintf("?agentPort=%d&agentToken=%s", *port, agentToken)
 	}
-	target += fmt.Sprintf("?agentPort=%d&agentToken=%s", *port, agentToken)
-	log.Printf("页面地址：%s", target)
+	panel := fmt.Sprintf("http://127.0.0.1:%d/", *port)
+	log.Printf("控制面板：%s", panel)
+	log.Printf("直达房间：%s", target)
 	log.Printf("令牌：%s（仅本次运行有效）", agentToken)
 
 	if !*noBrowser {
 		go func() {
 			time.Sleep(300 * time.Millisecond)
-			openBrowser(target)
+			if *room == "" {
+				openBrowser(panel)
+			} else {
+				openBrowser(target)
+			}
 		}()
 	}
 
