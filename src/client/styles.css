@@ -957,17 +957,18 @@ html[data-native-scrollbars="true"]::-webkit-scrollbar {
 }
 
 /* ============================================================
-   极简环境光背景
+   相册环境光背景
    ------------------------------------------------------------
-   替代原来的 WebGL 流体：没有 canvas 常驻渲染，没有大面积高饱和
-   噪声，只留一层深色底 + 两团极低透明度的柔光 + 细网格 + 颗粒。
-   全部颜色取自主题令牌，切换配色时整屏跟着变。
+   底层是一张相册照片（每次新开标签随机），上面盖多层 scrim 压暗，
+   四周压回深色保证正文对比度；再叠主题柔光 + 细网格 + 颗粒 + 暗角，
+   让不同照片共用同一套质感。没有 canvas 常驻渲染。
    ============================================================ */
 
 .liushui-ambient {
   background-color: var(--ambient-deep, #02040b);
 }
 
+/* 照片未加载/未选择时的兜底底色 */
 .liushui-ambient-base {
   position: absolute;
   inset: 0;
@@ -979,11 +980,59 @@ html[data-native-scrollbars="true"]::-webkit-scrollbar {
       color-mix(in srgb, var(--ambient-deep, #02040b) 78%, black) 100%);
 }
 
+.liushui-ambient-photo {
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+  background-size: cover;
+  opacity: var(--ambient-photo-opacity, 0.62);
+  filter: saturate(0.88) contrast(1.02) brightness(0.96) blur(1.5px);
+  transform: scale(1.07);
+  animation: liushui-ambient-photo-drift 150s ease-in-out infinite alternate;
+  will-change: transform;
+  /* 海报式：上半屏保留照片，下半屏淡出，给输入框和小字留出纯黑区 */
+  mask-image: linear-gradient(180deg,
+    rgb(0 0 0 / 1) 0%,
+    rgb(0 0 0 / 0.94) 34%,
+    rgb(0 0 0 / 0.52) 62%,
+    rgb(0 0 0 / 0) 92%);
+  -webkit-mask-image: linear-gradient(180deg,
+    rgb(0 0 0 / 1) 0%,
+    rgb(0 0 0 / 0.94) 34%,
+    rgb(0 0 0 / 0.52) 62%,
+    rgb(0 0 0 / 0) 92%);
+}
+
+@keyframes liushui-ambient-photo-drift {
+  from { transform: scale(1.07) translate3d(-0.6%, 0.4%, 0); }
+  to   { transform: scale(1.12) translate3d(0.8%, -0.6%, 0); }
+}
+
+/* 暗化 + 主题染色：压掉照片的高光，让四角回到主题深色 */
+.liushui-ambient-photo-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(124% 90% at 50% 4%,
+      rgb(0 0 0 / 0.1) 0%,
+      rgb(0 0 0 / 0.42) 44%,
+      rgb(0 0 0 / 0.72) 100%),
+    linear-gradient(180deg,
+      rgb(0 0 0 / 0.24) 0%,
+      rgb(0 0 0 / 0.36) 42%,
+      rgb(0 0 0 / 0.82) 88%,
+      rgb(0 0 0 / 0.94) 100%),
+    linear-gradient(112deg,
+      color-mix(in srgb, var(--ambient-deep, #02040b) 62%, transparent) 0%,
+      transparent 40%,
+      color-mix(in srgb, var(--ambient-deep, #02040b) 70%, transparent) 100%);
+}
+
 .liushui-ambient-glow {
   position: absolute;
   border-radius: 50%;
   filter: blur(72px);
-  opacity: 0.5;
+  opacity: 0.42;
   will-change: transform;
 }
 
@@ -1031,7 +1080,7 @@ html[data-native-scrollbars="true"]::-webkit-scrollbar {
   background-size: 72px 72px;
   mask-image: radial-gradient(ellipse 78% 62% at 50% 34%, black 8%, transparent 78%);
   -webkit-mask-image: radial-gradient(ellipse 78% 62% at 50% 34%, black 8%, transparent 78%);
-  opacity: 0.75;
+  opacity: 0.5;
 }
 
 .liushui-ambient-grain {
@@ -1061,8 +1110,19 @@ html[data-native-scrollbars="true"]::-webkit-scrollbar {
   opacity: 0.5;
 }
 
+@media (max-width: 640px) {
+  .liushui-ambient-photo {
+    /* 竖屏裁切更狠，照片退一点存在感，优先保证文字干净 */
+    opacity: calc(var(--ambient-photo-opacity, 0.62) * 0.82);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .liushui-ambient-glow {
+    animation: none !important;
+  }
+
+  .liushui-ambient-photo {
     animation: none !important;
   }
 }
