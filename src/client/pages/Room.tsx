@@ -2347,17 +2347,23 @@ function RemoteControlViewport({ stream, children }: { stream: MediaStream | nul
         className="relative max-h-full max-w-full"
         style={ratio ? { aspectRatio: String(ratio), height: "100%", width: "auto" } : { height: "100%", width: "100%" }}
       >
-        <video
-          ref={videoRef}
-          autoPlay
-          className="h-full w-full object-fill"
-          muted
-          onLoadedMetadata={(event) => {
-            const video = event.currentTarget;
-            if (video.videoWidth && video.videoHeight) setRatio(video.videoWidth / video.videoHeight);
-          }}
-          playsInline
-        />
+        {stream ? (
+          <video
+            ref={videoRef}
+            autoPlay
+            className="h-full w-full object-fill"
+            muted
+            onLoadedMetadata={(event) => {
+              const video = event.currentTarget;
+              if (video.videoWidth && video.videoHeight) setRatio(video.videoWidth / video.videoHeight);
+            }}
+            playsInline
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center px-4 text-center text-sm font-medium tracking-[0.04em] text-sky-100/60">
+            已获得控制授权，等待对方共享屏幕…
+          </div>
+        )}
         {children}
       </div>
     </div>
