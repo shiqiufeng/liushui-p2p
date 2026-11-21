@@ -36,3 +36,7 @@ pnpm-lock.yaml
 *.log
 backup/
 settings.json
+
+# 编译产物
+agent/liushui-agent.exe
+agent/liushui-agent

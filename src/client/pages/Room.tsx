@@ -46,6 +46,7 @@ import {
   RiSendPlane2Fill,
   RiStopLine,
   RiSpeedLine,
+  RiRemoteControlLine,
   RiLogoutBoxRLine,
   RiLock2Fill,
   RiLoader4Line,
@@ -64,7 +65,7 @@ import NumberFlow, { NumberFlowGroup } from "@number-flow/react";
 import { useNavigate } from "@tanstack/react-router";
 import cuid from "cuid";
 import { AnimatePresence, motion } from "framer-motion";
-import { type CSSProperties, type DragEventHandler, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type DragEventHandler, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
 
 import Layout from "../components/Layout";
@@ -79,6 +80,9 @@ import { OverlayScrollbar } from "../components/ui/overlay-scrollbar";
 import { FileTransferManager, type FileTransferDiagnostics, type FileTransferSnapshot } from "../lib/file-transfer";
 import { trackInsightEvent } from "../lib/insightflare";
 import type { MediaTransport } from "../lib/media-transport";
+import type { E2EEStatus } from "../lib/e2ee";
+import { RemoteControlSurface } from "../components/remote-control-surface";
+import { RemoteAgentBridge, readAgentBinding, stripAgentParams } from "../lib/remote-agent";
 import { P2PCollaborationProvider } from "../lib/p2p-collaboration";
 import type { SharedPlaybackCommand, SharedPlaybackMessage } from "../lib/shared-playback";
 import {
@@ -87,6 +91,7 @@ import {
   type ConnectionProgress,
   type ConnectionState,
   type ConnectionStep,
+  type RemoteInputCommand,
   type SessionStatus,
   type WebRTCTransportDiagnostics,
 } from "../lib/webrtc";
@@ -203,6 +208,8 @@ const roomCopy = {
     readyDescription: "Choose a feature from the buttons below",
     encrypted: "End-to-end encrypted · Direct",
     encryptedRelay: "End-to-end encrypted · Relay",
+    transportEncrypted: "Link encrypted · Direct",
+    transportEncryptedRelay: "Link encrypted · Relay",
     leave: "Exit",
     share: "Share",
     copied: "Room link copied",
@@ -227,6 +234,8 @@ const roomCopy = {
     readyDescription: "从下方按钮中选择功能",
     encrypted: "端对端加密 · 直连",
     encryptedRelay: "端对端加密 · 中继",
+    transportEncrypted: "传输加密 · 直连",
+    transportEncryptedRelay: "传输加密 · 中继",
     leave: "退出",
     share: "分享",
     copied: "房间链接已复制",
@@ -671,14 +680,18 @@ function HeaderConnectionToggle({
   connectionRoute,
   encryptedLabel,
   encryptedRelayLabel,
+  e2eeReady,
   latency,
+  onSasClick,
   showRates,
   transferred,
 }: {
   connectionRoute: ConnectionRoute;
   encryptedLabel: string;
   encryptedRelayLabel: string;
+  e2eeReady: boolean;
   latency?: number;
+  onSasClick?: () => void;
   showRates: boolean;
   transferred?: { received: number; sent: number };
 }) {
@@ -715,8 +728,15 @@ function HeaderConnectionToggle({
           className="inline-flex min-w-0 items-center gap-1.5 text-xs font-bold tracking-[0.05em]"
           transition={{ layout: { duration: 0.32, ease: "easeOut" } }}
         >
-          <RiLock2Fill aria-hidden="true" className="size-4 shrink-0 text-emerald-300" />
-          <motion.span layout="position" className="whitespace-nowrap text-emerald-300" transition={{ layout: { duration: 0.32, ease: "easeOut" } }}>
+          <button
+            aria-label="查看端对端加密指纹"
+            className="inline-flex shrink-0 cursor-pointer items-center rounded-full border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-300/70"
+            onClick={(event) => { event.stopPropagation(); onSasClick?.(); }}
+            type="button"
+          >
+            <RiLock2Fill aria-hidden="true" className={`size-4 shrink-0 ${e2eeReady ? "text-emerald-300" : "text-amber-300"}`} />
+          </button>
+          <motion.span layout="position" className={`whitespace-nowrap ${e2eeReady ? "text-emerald-300" : "text-amber-300"}`} transition={{ layout: { duration: 0.32, ease: "easeOut" } }}>
             {connectionRoute === "relay" ? encryptedRelayLabel : encryptedLabel}
           </motion.span>
           <motion.span layout="position" className="text-slate-400/60" transition={{ layout: { duration: 0.32, ease: "easeOut" } }}>|</motion.span>
@@ -2310,6 +2330,40 @@ function FileWorkspace({ accent, files, locale, onAccept, onCancel, onDelete, on
   );
 }
 
+function RemoteControlViewport({ stream, children }: { stream: MediaStream | null; children?: ReactNode }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [ratio, setRatio] = useState<number | null>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !stream) return;
+    if (video.srcObject !== stream) video.srcObject = stream;
+    void video.play().catch(() => { /* 自动播放被拦截时用户点击一次即可恢复 */ });
+  }, [stream]);
+
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black">
+      <div
+        className="relative max-h-full max-w-full"
+        style={ratio ? { aspectRatio: String(ratio), height: "100%", width: "auto" } : { height: "100%", width: "100%" }}
+      >
+        <video
+          ref={videoRef}
+          autoPlay
+          className="h-full w-full object-fill"
+          muted
+          onLoadedMetadata={(event) => {
+            const video = event.currentTarget;
+            if (video.videoWidth && video.videoHeight) setRatio(video.videoWidth / video.videoHeight);
+          }}
+          playsInline
+        />
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function RoomWorkspace({
   chatMessages,
   canvasHasContent,
@@ -2370,8 +2424,32 @@ function RoomWorkspace({
   onSendChatMessage,
   voiceActive,
   videoActive,
+  e2eeStatus,
+  sasPanelOpen,
+  onSasPanelOpenChange,
+  rcMode,
+  rcNotice,
+  remoteScreenStream,
+  onRemoteCommand,
+  onRemoteControlToggle,
+  onExitRemoteControl,
+  rcIncoming,
+  onAcceptRemote,
+  onDenyRemote,
 }: {
   chatMessages: ChatMessage[];
+  e2eeStatus: E2EEStatus;
+  sasPanelOpen: boolean;
+  onSasPanelOpenChange: (open: boolean) => void;
+  rcMode: "none" | "pending" | "controller" | "controlled";
+  rcNotice: string | null;
+  remoteScreenStream: MediaStream | null;
+  onRemoteCommand: (command: RemoteInputCommand) => void;
+  onRemoteControlToggle: () => void;
+  onExitRemoteControl: () => void;
+  rcIncoming: boolean;
+  onAcceptRemote: () => void;
+  onDenyRemote: () => void;
   canvasHasContent: boolean;
   collaborationProvider: P2PCollaborationProvider | null;
   collaborationPeerCursor: boolean;
@@ -2514,6 +2592,15 @@ function RoomWorkspace({
   });
 
   dockItems.push({
+    icon: <RiRemoteControlLine aria-hidden="true" className="size-full" />,
+    id: "remote-control",
+    isActive: rcMode === "controller" || rcMode === "controlled",
+    label: rcMode === "none" ? "远程控制" : rcMode === "pending" ? "等待确认" : "断开控制",
+    onClick: onRemoteControlToggle,
+    running: rcMode !== "none",
+  });
+
+  dockItems.push({
     icon: <RiLogoutBoxRLine aria-hidden="true" className="size-full" />,
     id: "exit",
     label: workspace.exit,
@@ -2566,14 +2653,48 @@ function RoomWorkspace({
             >
               <HeaderConnectionToggle
                 connectionRoute={connectionRoute}
-                encryptedLabel={copy.encrypted}
-                encryptedRelayLabel={copy.encryptedRelay}
+                e2eeReady={e2eeStatus.state === "ready"}
+                encryptedLabel={e2eeStatus.state === "ready" ? copy.encrypted : copy.transportEncrypted}
+                encryptedRelayLabel={e2eeStatus.state === "ready" ? copy.encryptedRelay : copy.transportEncryptedRelay}
                 latency={progress.p2p.latency}
+                onSasClick={() => onSasPanelOpenChange(true)}
                 showRates={showConnectionRates}
                 transferred={progress.dataChannel.transferred}
               />
             </Clickable>
           </header>
+
+          {sasPanelOpen ? (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4 backdrop-blur-sm"
+              onClick={() => onSasPanelOpenChange(false)}
+              role="presentation"
+            >
+              <div
+                className="glass w-full max-w-sm rounded-2xl border border-emerald-200/15 p-6 text-center"
+                onClick={(event) => event.stopPropagation()}
+                role="dialog"
+              >
+                <p className="text-xs font-bold tracking-[0.18em] text-sky-100/55">端对端加密指纹</p>
+                <p className="mt-4 font-mono text-3xl font-bold tracking-[0.14em] text-emerald-300">
+                  {e2eeStatus.sas ?? "——"}
+                </p>
+                <p className="mt-4 text-xs leading-relaxed text-sky-100/65">
+                  请与对方核对这串短码。两端显示完全一致，才能确认会话没有中间人介入。
+                </p>
+                <p className="mt-2 text-[11px] leading-relaxed text-sky-100/40">
+                  密钥协商 {e2eeStatus.curve ?? "未建立"} · AES-256-GCM · 逐消息独立随机数
+                </p>
+                <button
+                  className="mt-5 w-full rounded-xl border border-sky-100/15 bg-sky-100/[0.06] py-2 text-sm font-semibold text-sky-50 transition hover:bg-sky-100/[0.12]"
+                  onClick={() => onSasPanelOpenChange(false)}
+                  type="button"
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           {connectionNotice ? (
             <div aria-live="polite" className="mt-3 rounded-xl border border-amber-200/15 bg-amber-100/[0.06] px-4 py-2 text-xs font-medium leading-relaxed tracking-[0.03em] text-amber-100/75" role="status">
@@ -2782,6 +2903,57 @@ function RoomWorkspace({
             voiceVolume={volume}
           />
         </motion.div>
+
+        {rcMode === "controller" ? (
+          <div className="fixed inset-0 z-40 flex flex-col bg-black">
+            <RemoteControlViewport stream={remoteScreenStream}>
+              <RemoteControlSurface active onCommand={onRemoteCommand} onExit={onExitRemoteControl} />
+            </RemoteControlViewport>
+            <div className="flex shrink-0 items-center justify-between gap-3 border-t border-white/10 px-4 py-2 text-xs font-semibold tracking-[0.04em] text-sky-100/70">
+              <span>远程控制中 · 按 Esc 退出</span>
+              <button
+                className="rounded-lg border border-white/10 px-3 py-1 text-sky-100/80 transition-colors hover:bg-white/5"
+                onClick={onExitRemoteControl}
+                type="button"
+              >
+                断开
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {rcIncoming ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm" role="presentation">
+            <div className="glass w-full max-w-sm rounded-2xl border border-rose-200/20 p-6 text-center" role="dialog">
+              <p className="text-xs font-bold tracking-[0.14em] text-rose-200/70">远程控制请求</p>
+              <p className="mt-3 text-sm leading-relaxed text-sky-100/80">
+                对方请求控制这台电脑。允许后对方可以移动鼠标、点击和输入键盘，同时本机屏幕会被共享。
+              </p>
+              <div className="mt-5 flex gap-2">
+                <button
+                  className="flex-1 rounded-xl border border-white/10 py-2 text-sm font-semibold text-sky-100/70 transition-colors hover:bg-white/5"
+                  onClick={onDenyRemote}
+                  type="button"
+                >
+                  拒绝
+                </button>
+                <button
+                  className="flex-1 rounded-xl border border-rose-300/30 bg-rose-500/15 py-2 text-sm font-semibold text-rose-100 transition-colors hover:bg-rose-500/25"
+                  onClick={onAcceptRemote}
+                  type="button"
+                >
+                  允许并共享屏幕
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {rcNotice && rcMode !== "controller" ? (
+          <div className="fixed bottom-24 left-1/2 z-40 -translate-x-1/2 rounded-xl border border-sky-200/15 bg-slate-950/85 px-4 py-2 text-xs font-semibold tracking-[0.04em] text-sky-100/80 backdrop-blur">
+            {rcNotice}
+          </div>
+        ) : null}
       </DialogContent>
     </Dialog>
   );
@@ -2912,6 +3084,13 @@ export default function Room({ locale, roomId }: { locale: RoomLocale; roomId: s
     dataChannel: { channels: 0, state: "pending", detail: "Waiting for data channel" },
   });
   const sessionRef = useRef<NativeWebRTCSession | null>(null);
+  const [e2eeStatus, setE2eeStatus] = useState<E2EEStatus>({ curve: null, sas: null, state: "idle" });
+  const [sasPanelOpen, setSasPanelOpen] = useState(false);
+  const [rcMode, setRcMode] = useState<"none" | "pending" | "controller" | "controlled">("none");
+  const [rcNotice, setRcNotice] = useState<string | null>(null);
+  const [agentReady, setAgentReady] = useState(false);
+  const [rcIncoming, setRcIncoming] = useState(false);
+  const agentBridgeRef = useRef<RemoteAgentBridge | null>(null);
   const fileManagerRef = useRef<FileTransferManager | null>(null);
   const lastTypingSentAtRef = useRef(0);
   const peerSessionGenerationRef = useRef(0);
@@ -2922,6 +3101,64 @@ export default function Room({ locale, roomId }: { locale: RoomLocale; roomId: s
     peerSessionGenerationRef.current += 1;
     peerSessionAbortControllerRef.current = new AbortController();
   };
+
+  // 被控端：如果带 agent 参数启动，连接到本机控制代理
+  useEffect(() => {
+    const binding = readAgentBinding();
+    if (!binding) return;
+    stripAgentParams();
+    const bridge = new RemoteAgentBridge();
+    agentBridgeRef.current = bridge;
+    let cancelled = false;
+    void bridge.connect(binding).then((info) => {
+      if (cancelled) return;
+      setAgentReady(Boolean(info));
+      if (info) setRcNotice("本机控制代理已就绪，对方请求时可接管这台电脑");
+    });
+    return () => {
+      cancelled = true;
+      bridge.dispose();
+      agentBridgeRef.current = null;
+    };
+  }, []);
+
+  const requestRemoteControl = () => {
+    const session = sessionRef.current;
+    if (!session) return;
+    if (rcMode === "controller" || rcMode === "pending") {
+      session.sendRemoteControl({ type: "rc-stop" });
+      setRcMode("none");
+      setRcNotice(null);
+      return;
+    }
+    session.sendRemoteControl({ type: "rc-offer" });
+    setRcMode("pending");
+    setRcNotice("已请求远程控制，等待对方确认…");
+  };
+
+  const exitRemoteControl = () => {
+    sessionRef.current?.sendRemoteControl({ type: "rc-stop" });
+    setRcMode("none");
+    setRcNotice(agentReady ? "本机控制代理已就绪，对端请求时可接管这台电脑" : null);
+  };
+
+  const handleRemoteCommand = useCallback((command: RemoteInputCommand) => {
+    sessionRef.current?.sendRemoteControl({ type: "rc-input", command });
+  }, []);
+
+  // 被控端：Esc 立即断开远程控制
+  useEffect(() => {
+    if (rcMode !== "controlled") return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      sessionRef.current?.sendRemoteControl({ type: "rc-stop" });
+      setRcMode("none");
+      setRcNotice("远程控制已断开");
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [rcMode]);
 
   const disposePeerSessionScope = () => {
     peerSessionAbortControllerRef.current.abort();
@@ -3468,6 +3705,38 @@ export default function Room({ locale, roomId }: { locale: RoomLocale; roomId: s
       setRemoteVideoActive((current) => current === remoteVideo ? current : remoteVideo);
     });
     session.attachFileTransferManager(fileManagerRef.current);
+    const unsubscribeE2EE = session.onE2EEStatusChange(setE2eeStatus);
+    setE2eeStatus(session.getE2EEStatus());
+    const unsubscribeRemote = session.onRemoteControl((message) => {
+      if (message.type === "rc-offer") {
+        // 被控端：需要用户点一次「允许」，因为 getDisplayMedia 必须有手势
+        if (agentBridgeRef.current?.connected) {
+          setRcIncoming(true);
+          setRcNotice("对方请求远程控制这台电脑");
+        } else {
+          session.sendRemoteControl({ type: "rc-deny" });
+        }
+        return;
+      }
+      if (message.type === "rc-accept") {
+        setRcMode("controller");
+        setRcNotice("远程控制已建立，按 Esc 退出");
+        return;
+      }
+      if (message.type === "rc-deny") {
+        setRcMode("none");
+        setRcNotice("对方未开启远程控制（本机需运行 liushui-agent）");
+        return;
+      }
+      if (message.type === "rc-stop") {
+        setRcMode("none");
+        setRcNotice(null);
+        return;
+      }
+      if (message.type === "rc-input") {
+        agentBridgeRef.current?.send(message.command);
+      }
+    });
     session.connect();
     let pageHidden = false;
     const handlePageHide = () => {
@@ -3490,6 +3759,8 @@ export default function Room({ locale, roomId }: { locale: RoomLocale; roomId: s
       if (pageHidden) session.suspend();
       else session.close();
       unsubscribeMedia();
+      unsubscribeE2EE();
+      unsubscribeRemote();
       rawMicrophoneTrackRef.current?.stop();
       rawMicrophoneTrackRef.current = null;
       cameraTrackRef.current?.stop();
@@ -3979,6 +4250,23 @@ export default function Room({ locale, roomId }: { locale: RoomLocale; roomId: s
     void startScreenShare(false);
   };
 
+  const acceptRemoteControl = () => {
+    const session = sessionRef.current;
+    if (!session) return;
+    setRcIncoming(false);
+    // 必须在这次点击的手势上下文里开启屏幕共享，否则浏览器会拒绝 getDisplayMedia
+    void startScreenShare(false);
+    session.sendRemoteControl({ type: "rc-accept" });
+    setRcMode("controlled");
+    setRcNotice("对方正在控制这台电脑，按 Esc 退出");
+  };
+
+  const denyRemoteControl = () => {
+    setRcIncoming(false);
+    sessionRef.current?.sendRemoteControl({ type: "rc-deny" });
+    setRcNotice(agentReady ? "本机控制代理已就绪，对端请求时可接管这台电脑" : null);
+  };
+
   useEffect(() => {
     const timer = window.setInterval(() => {
       const timeoutAt = Date.now() - 12_000;
@@ -4003,6 +4291,18 @@ export default function Room({ locale, roomId }: { locale: RoomLocale; roomId: s
         <RoomWorkspace
           canvasHasContent={canvasHasContent}
           chatMessages={chatMessages}
+          e2eeStatus={e2eeStatus}
+          onSasPanelOpenChange={setSasPanelOpen}
+          sasPanelOpen={sasPanelOpen}
+          rcMode={rcMode}
+          rcNotice={rcNotice}
+          remoteScreenStream={mediaTransport?.getRemoteStream("screen-video") ?? null}
+          onRemoteCommand={handleRemoteCommand}
+          onRemoteControlToggle={requestRemoteControl}
+          onExitRemoteControl={exitRemoteControl}
+          rcIncoming={rcIncoming}
+          onAcceptRemote={acceptRemoteControl}
+          onDenyRemote={denyRemoteControl}
           collaborationProvider={collaborationProvider}
           collaborationPeerCursor={collaborationPeerCursor}
           fileTransfers={fileTransfers}

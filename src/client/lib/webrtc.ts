@@ -45,6 +45,13 @@ import type { FileTransferManager, FileTransferSnapshot } from "./file-transfer"
 import { MediaTransport, type MediaSlotControlMessage } from "./media-transport";
 import { isSharedPlaybackMessage, type SharedPlaybackMessage } from "./shared-playback";
 import {
+  E2EE_HANDSHAKE_TYPE,
+  E2EESession,
+  extractDtlsFingerprint,
+  type E2EEHandshake,
+  type E2EEStatus,
+} from "./e2ee";
+import {
   ROOM_DISCONNECTED_LEASE_MS,
   SIGNALING_HEARTBEAT_CAPABILITY,
   SIGNALING_HEARTBEAT_INTERVAL_MS,
@@ -106,6 +113,24 @@ export type InteractiveMessage = {
   type: "chat";
 };
 
+/** 远程控制：由控制端发起，被控端确认后开始转发输入事件 */
+export type RemoteInputCommand = {
+  type: "move" | "button" | "wheel" | "hwheel" | "key";
+  x?: number;
+  y?: number;
+  button?: string;
+  down?: boolean;
+  vk?: number;
+  delta?: number;
+};
+
+export type RemoteControlMessage =
+  | { type: "rc-offer" }
+  | { type: "rc-accept" }
+  | { type: "rc-deny" }
+  | { type: "rc-stop" }
+  | { type: "rc-input"; command: RemoteInputCommand };
+
 type DataChannelName = "bulk" | "collaboration" | "control" | "interactive";
 
 const DATA_CHANNEL_NAMES: DataChannelName[] = ["control", "interactive", "bulk", "collaboration"];
@@ -114,6 +139,16 @@ const textEncoder = new TextEncoder();
 
 function isDataChannelName(label: string): label is DataChannelName {
   return DATA_CHANNEL_NAMES.includes(label as DataChannelName);
+}
+
+/** 握手消息必须保持明文，否则对端在拿到密钥前无法解析 */
+function isE2EEHandshake(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 1_024 || !value.startsWith("{\"")) return false;
+  try {
+    return (JSON.parse(value) as { type?: unknown }).type === E2EE_HANDSHAKE_TYPE;
+  } catch {
+    return false;
+  }
 }
 
 function isInteractiveMessage(value: unknown): value is InteractiveMessage {
@@ -569,6 +604,7 @@ type V2Signal = SignalMessage & { from?: string; peerId?: string };
 export class NativeWebRTCSession {
   private channels: Record<DataChannelName, RTCDataChannel | null> = { bulk: null, collaboration: null, control: null, interactive: null };
   private collaborationListeners = new Set<(data: ArrayBuffer) => void>();
+  private remoteControlListeners = new Set<(message: RemoteControlMessage) => void>();
   private collaborationStatusListeners = new Set<(ready: boolean) => void>();
   private closed = false;
   private suspended = false;
@@ -632,6 +668,10 @@ export class NativeWebRTCSession {
   private receivedChatIds = new Set<string>();
   private fileTransferManager: FileTransferManager | null = null;
   private mediaTransport: MediaTransport;
+  private readonly e2ee = new E2EESession();
+  private e2eeSendChain: Promise<void> = Promise.resolve();
+  private e2eeReceiveChain: Promise<void> = Promise.resolve();
+  private e2eePendingInbound: Array<{ name: DataChannelName; data: ArrayBuffer }> = [];
 
   constructor(
     private readonly roomId: string,
@@ -758,6 +798,8 @@ export class NativeWebRTCSession {
     this.stopHeartbeat();
     this.stopDataChannelLatencyProbe();
     this.closeDataChannels();
+    this.e2ee.reset();
+    this.e2eePendingInbound = [];
     this.mediaTransport.dispose();
     this.peer?.close();
     this.peer = null;
@@ -849,13 +891,34 @@ export class NativeWebRTCSession {
     const channel = this.channels[channelName];
     if (channel?.readyState !== "open") return false;
     if (channelName === "bulk" && channel.bufferedAmount > 3 * 1024 * 1024) return false;
+    // 握手包必须明文（对端此时还没有密钥）；E2EE 就绪后其余消息全部走 AEAD 封装。
+    if (!this.e2ee.ready || isE2EEHandshake(data)) {
+      return this.writeChannel(channelName, data, data);
+    }
+    const plaintext = data;
+    // 串行入队，保证同一通道内的发送顺序与加密前的顺序一致
+    this.e2eeSendChain = this.e2eeSendChain
+      .then(async () => {
+        const payload = plaintext instanceof Blob ? await plaintext.arrayBuffer() : plaintext;
+        const sealed = await this.e2ee.seal(payload);
+        this.writeChannel(channelName, sealed, plaintext);
+      })
+      .catch(() => {
+        // 单条消息加密失败不应拖垮后续流量
+      });
+    return true;
+  }
+
+  private writeChannel(channelName: DataChannelName, wire: string | ArrayBuffer | Blob, original: string | ArrayBuffer | Blob): boolean {
+    const channel = this.channels[channelName];
+    if (channel?.readyState !== "open") return false;
     try {
-      if (typeof data === "string") channel.send(data);
-      else if (data instanceof Blob) channel.send(data);
-      else if (data instanceof ArrayBuffer) channel.send(data);
-      else channel.send(data as any);
+      if (typeof wire === "string") channel.send(wire);
+      else if (wire instanceof Blob) channel.send(wire);
+      else if (wire instanceof ArrayBuffer) channel.send(wire);
+      else channel.send(wire as any);
     } catch { return false; }
-    this.sentBytes += dataSize(data);
+    this.sentBytes += dataSize(original);
     this.updateDataTransferProgress();
     return true;
   }
@@ -1339,6 +1402,89 @@ export class NativeWebRTCSession {
     }
   }
 
+  /** 订阅远端发来的远程控制消息 */
+  onRemoteControl(listener: (message: RemoteControlMessage) => void): () => void {
+    this.remoteControlListeners.add(listener);
+    return () => this.remoteControlListeners.delete(listener);
+  }
+
+  /** 发送远程控制消息（走 control 通道，受 E2EE 保护） */
+  sendRemoteControl(message: RemoteControlMessage): boolean {
+    return this.sendOnChannel("control", JSON.stringify(message));
+  }
+
+  /** 订阅应用层加密状态（含 SAS 短码）变化 */
+  onE2EEStatusChange(listener: (status: E2EEStatus) => void): () => void {
+    return this.e2ee.onStatusChange(listener);
+  }
+
+  getE2EEStatus(): E2EEStatus {
+    return this.e2ee.status;
+  }
+
+  private async startE2EEHandshake(): Promise<void> {
+    if (this.closed || this.suspended) return;
+    try {
+      const hello = await this.e2ee.beginHandshake();
+      this.writeChannel("control", JSON.stringify(hello), "");
+    } catch {
+      // 浏览器不支持任何 ECDH 曲线时降级为纯 DTLS，连接照常可用
+      this.setStep("p2p", { state: "active", detail: "Application-layer encryption unavailable" });
+    }
+  }
+
+  private async handleE2EEHandshake(raw: string): Promise<void> {
+    let message: E2EEHandshake;
+    try {
+      message = JSON.parse(raw) as E2EEHandshake;
+    } catch {
+      return;
+    }
+    if (message.v !== 1 || typeof message.pub !== "string" || message.pub.length === 0 || message.pub.length > 256) return;
+    const peer = this.peer;
+    const dtlsLocal = extractDtlsFingerprint(peer?.localDescription?.sdp);
+    const dtlsRemote = extractDtlsFingerprint(peer?.remoteDescription?.sdp);
+    await this.e2ee.acceptPeer(message.pub, dtlsLocal, dtlsRemote);
+    this.flushE2EEPending();
+  }
+
+  private flushE2EEPending(): void {
+    if (!this.e2ee.ready || this.e2eePendingInbound.length === 0) return;
+    const pending = this.e2eePendingInbound;
+    this.e2eePendingInbound = [];
+    for (const { name, data } of pending) {
+      this.e2eeReceiveChain = this.e2eeReceiveChain.then(() => this.dispatchInbound(name, data)).catch(() => { /* ignore */ });
+    }
+  }
+
+  private async dispatchInbound(name: DataChannelName, raw: unknown): Promise<void> {
+    if (raw instanceof ArrayBuffer && E2EESession.isSealedPacket(raw)) {
+      if (!this.e2ee.ready) {
+        // 握手尚未完成就先到的密文：暂存，密钥就绪后按序补处理
+        if (this.e2eePendingInbound.length < 64) this.e2eePendingInbound.push({ name, data: raw });
+        return;
+      }
+      const opened = await this.e2ee.open(raw);
+      if (!opened) return;
+      this.routeInbound(name, opened.data);
+      return;
+    }
+    if (isE2EEHandshake(raw)) {
+      await this.handleE2EEHandshake(raw);
+      return;
+    }
+    this.routeInbound(name, raw);
+  }
+
+  private routeInbound(name: DataChannelName, data: unknown): void {
+    if (name === "control") this.handleDataChannelMessage(data);
+    if (name === "interactive") this.handleInteractiveMessage(data);
+    if (name === "bulk" && data instanceof ArrayBuffer) this.fileTransferManager?.handleSegment(data);
+    if (name === "collaboration" && data instanceof ArrayBuffer) {
+      for (const listener of this.collaborationListeners) listener(data);
+    }
+  }
+
   private attachDataChannel(channel: RTCDataChannel): void {
     if (!isDataChannelName(channel.label)) { channel.close(); return; }
     const name = channel.label;
@@ -1351,7 +1497,7 @@ export class NativeWebRTCSession {
     this.channels[name] = channel; channel.binaryType = "arraybuffer"; this.updateDataChannelProgress();
     channel.onopen = () => {
       if (this.channels[name] !== channel || this.closed || this.suspended) return;
-      this.updateDataChannelProgress(); if (name === "control") this.startDataChannelLatencyProbe();
+      this.updateDataChannelProgress(); if (name === "control") { this.startDataChannelLatencyProbe(); void this.startE2EEHandshake(); }
       if (name === "collaboration") this.notifyCollaborationStatus(true);
       if (this.openDataChannelCount() === DATA_CHANNEL_COUNT && !this.connectedNotified) {
         this.connectedNotified = true;
@@ -1365,12 +1511,13 @@ export class NativeWebRTCSession {
     channel.onmessage = (event) => {
       if (this.channels[name] !== channel) return;
       this.receivedBytes += dataSize(event.data); this.updateDataTransferProgress();
-      if (name === "control") this.handleDataChannelMessage(event.data);
-      if (name === "interactive") this.handleInteractiveMessage(event.data);
-      if (name === "bulk" && event.data instanceof ArrayBuffer) this.fileTransferManager?.handleSegment(event.data);
-      if (name === "collaboration" && event.data instanceof ArrayBuffer) {
-        for (const listener of this.collaborationListeners) listener(event.data);
-      }
+      const raw = event.data;
+      // 串行解密，保证处理顺序与对端发送顺序一致
+      this.e2eeReceiveChain = this.e2eeReceiveChain
+        .then(() => this.dispatchInbound(name, raw))
+        .catch(() => {
+          // 单条消息解密失败（篡改 / 重放 / 乱序）只丢弃该条
+        });
     };
     channel.onclose = () => {
       if (this.channels[name] !== channel) return;
@@ -1391,6 +1538,8 @@ export class NativeWebRTCSession {
     this.reportStatus({ p2pState: this.remoteParticipantJoined ? "negotiating" : "waiting", state: this.signalingState === "connected" ? "connected" : "reconnecting" });
     this.stopDataChannelLatencyProbe();
     this.closeDataChannels();
+    this.e2ee.reset();
+    this.e2eePendingInbound = [];
     this.mediaTransport.detachPeer();
     const peer = this.peer;
     this.peer = null;
@@ -1537,6 +1686,13 @@ export class NativeWebRTCSession {
     if (typeof data !== "string") return;
     let message: DataChannelControlMessage;
     try { message = JSON.parse(data) as DataChannelControlMessage; } catch { return; }
+    const rawType = (message as { type?: unknown }).type;
+    if (typeof rawType === "string" && rawType.startsWith("rc-")) {
+      for (const listener of this.remoteControlListeners) {
+        try { listener(message as unknown as RemoteControlMessage); } catch { /* 监听器异常不中断通道 */ }
+      }
+      return;
+    }
     this.fileTransferManager?.handleControl(message as unknown as { type: string; [key: string]: unknown });
     if (this.mediaTransport.handleControlMessage(message)) return;
 
