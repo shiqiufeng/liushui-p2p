@@ -35,7 +35,7 @@ Fork 本仓库后，在 Cloudflare Dashboard 的 **Workers & Pages** 中依次�
 
 ## 预览
 
-前往 https://liushui-p2p.liushuile.dpdns.org 查看效果。
+前往 https://p2p.liushuile.dpdns.org 查看效果。
 
 <img width="2478" height="1455" alt="image" src="https://github.com/user-attachments/assets/c842bdce-a80c-4760-947d-b601b1023b1f" />
 <img width="2478" height="1455" alt="image" src="https://github.com/user-attachments/assets/578cf5c6-5ec1-4ba5-a490-a3052cc9bc25" />
