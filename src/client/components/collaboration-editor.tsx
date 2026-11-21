@@ -41,7 +41,7 @@ function ToolButton({ active = false, children, disabled = false, label, onClick
   return (
     <button
       aria-label={label}
-      className={`zest-collaboration-tool ${active ? "zest-collaboration-tool-active" : ""}`}
+      className={`liushui-collaboration-tool ${active ? "liushui-collaboration-tool-active" : ""}`}
       disabled={disabled}
       onClick={onClick}
       title={label}
@@ -53,20 +53,20 @@ function ToolButton({ active = false, children, disabled = false, label, onClick
 }
 
 function positionRemoteCaret(caret: HTMLElement) {
-  const visual = caret.querySelector<HTMLElement>(".zest-collaboration-caret-visual");
+  const visual = caret.querySelector<HTMLElement>(".liushui-collaboration-caret-visual");
   if (!visual) return;
   const rect = caret.getBoundingClientRect();
-  visual.style.setProperty("--zest-collaboration-caret-x", `${rect.left}px`);
-  visual.style.setProperty("--zest-collaboration-caret-y", `${rect.top}px`);
+  visual.style.setProperty("--liushui-collaboration-caret-x", `${rect.left}px`);
+  visual.style.setProperty("--liushui-collaboration-caret-y", `${rect.top}px`);
   if (visual.dataset.positioned !== "true") {
     visual.dataset.positioned = "true";
     window.requestAnimationFrame(() => {
       if (!visual.isConnected) return;
-      visual.classList.add("zest-collaboration-caret-motion-ready", "zest-collaboration-caret-visible");
+      visual.classList.add("liushui-collaboration-caret-motion-ready", "liushui-collaboration-caret-visible");
     });
     return;
   }
-  visual.classList.add("zest-collaboration-caret-visible");
+  visual.classList.add("liushui-collaboration-caret-visible");
 }
 
 function CollaborationEditor({ accent, locale, onFeatureUsed, provider }: { accent: string; locale: Locale; onFeatureUsed: () => void; provider: P2PCollaborationProvider }) {
@@ -85,7 +85,7 @@ function CollaborationEditor({ accent, locale, onFeatureUsed, provider }: { acce
   const tiptap = useEditor({
     editorProps: {
       attributes: {
-        class: "zest-collaboration-editor",
+        class: "liushui-collaboration-editor",
         spellcheck: "true",
       },
       handleDOMEvents: {
@@ -102,7 +102,7 @@ function CollaborationEditor({ accent, locale, onFeatureUsed, provider }: { acce
       }),
       Link.configure({
         HTMLAttributes: {
-          class: "zest-collaboration-link",
+          class: "liushui-collaboration-link",
           rel: "noopener noreferrer nofollow",
           target: "_blank",
         },
@@ -117,20 +117,20 @@ function CollaborationEditor({ accent, locale, onFeatureUsed, provider }: { acce
         provider,
         render: () => {
           const caret = document.createElement("span");
-          caret.className = "zest-collaboration-caret";
+          caret.className = "liushui-collaboration-caret";
           const visual = document.createElement("span");
-          visual.className = "zest-collaboration-caret-visual";
-          visual.style.setProperty("--zest-collaboration-accent", accent);
+          visual.className = "liushui-collaboration-caret-visual";
+          visual.style.setProperty("--liushui-collaboration-accent", accent);
           const label = document.createElement("span");
-          label.className = "zest-collaboration-caret-label";
+          label.className = "liushui-collaboration-caret-label";
           label.textContent = locale === "zh" ? "对方" : "Peer";
           visual.append(label);
           caret.append(visual);
           return caret;
         },
         selectionRender: () => ({
-          class: "zest-collaboration-selection",
-          style: "background-color: color-mix(in srgb, var(--zest-collaboration-accent) 20%, transparent);",
+          class: "liushui-collaboration-selection",
+          style: "background-color: color-mix(in srgb, var(--liushui-collaboration-accent) 20%, transparent);",
         }),
         user,
       }),
@@ -152,7 +152,7 @@ function CollaborationEditor({ accent, locale, onFeatureUsed, provider }: { acce
     if (!tiptap) return;
     const editorRoot = tiptap.view.dom;
     const exitLayer = document.createElement("div");
-    exitLayer.className = "zest-collaboration-caret-exit-layer";
+    exitLayer.className = "liushui-collaboration-caret-exit-layer";
     document.body.append(exitLayer);
     const removedCarets = new Set<HTMLElement>();
     let frame = 0;
@@ -161,16 +161,16 @@ function CollaborationEditor({ accent, locale, onFeatureUsed, provider }: { acce
       frame = 0;
       for (const caret of removedCarets) {
         if (caret.isConnected) continue;
-        const visual = caret.querySelector<HTMLElement>(".zest-collaboration-caret-visual");
-        if (!visual?.classList.contains("zest-collaboration-caret-visible")) continue;
+        const visual = caret.querySelector<HTMLElement>(".liushui-collaboration-caret-visual");
+        if (!visual?.classList.contains("liushui-collaboration-caret-visible")) continue;
         const fadingVisual = visual.cloneNode(true) as HTMLElement;
         exitLayer.append(fadingVisual);
-        window.requestAnimationFrame(() => fadingVisual.classList.remove("zest-collaboration-caret-visible"));
+        window.requestAnimationFrame(() => fadingVisual.classList.remove("liushui-collaboration-caret-visible"));
         window.setTimeout(() => fadingVisual.remove(), 220);
       }
       removedCarets.clear();
 
-      for (const caret of editorRoot.querySelectorAll<HTMLElement>(".zest-collaboration-caret")) {
+      for (const caret of editorRoot.querySelectorAll<HTMLElement>(".liushui-collaboration-caret")) {
         positionRemoteCaret(caret);
       }
     };
@@ -181,13 +181,13 @@ function CollaborationEditor({ accent, locale, onFeatureUsed, provider }: { acce
       for (const record of records) {
         for (const node of record.removedNodes) {
           if (!(node instanceof HTMLElement)) continue;
-          if (node.matches(".zest-collaboration-caret")) removedCarets.add(node);
-          node.querySelectorAll<HTMLElement>(".zest-collaboration-caret").forEach((caret) => removedCarets.add(caret));
+          if (node.matches(".liushui-collaboration-caret")) removedCarets.add(node);
+          node.querySelectorAll<HTMLElement>(".liushui-collaboration-caret").forEach((caret) => removedCarets.add(caret));
         }
       }
       schedulePosition();
     });
-    const scrollContainer = editorRoot.closest(".zest-collaboration-page");
+    const scrollContainer = editorRoot.closest(".liushui-collaboration-page");
     observer.observe(editorRoot, { childList: true, subtree: true });
     scrollContainer?.addEventListener("scroll", schedulePosition, { passive: true });
     window.addEventListener("resize", schedulePosition);
@@ -205,7 +205,7 @@ function CollaborationEditor({ accent, locale, onFeatureUsed, provider }: { acce
   useEffect(() => {
     if (!tiptap) return;
     const frame = window.requestAnimationFrame(() => {
-      for (const caret of tiptap.view.dom.querySelectorAll<HTMLElement>(".zest-collaboration-caret")) {
+      for (const caret of tiptap.view.dom.querySelectorAll<HTMLElement>(".liushui-collaboration-caret")) {
         positionRemoteCaret(caret);
       }
     });
@@ -233,20 +233,20 @@ function CollaborationEditor({ accent, locale, onFeatureUsed, provider }: { acce
   void version;
 
   return (
-    <div className="zest-collaboration-shell" style={{ "--zest-collaboration-accent": accent } as CSSProperties}>
-      <div className="zest-collaboration-toolbar">
-        <div className="zest-collaboration-tools" role="toolbar" aria-label={locale === "zh" ? "协作文档工具栏" : "Collaborative document toolbar"}>
+    <div className="liushui-collaboration-shell" style={{ "--liushui-collaboration-accent": accent } as CSSProperties}>
+      <div className="liushui-collaboration-toolbar">
+        <div className="liushui-collaboration-tools" role="toolbar" aria-label={locale === "zh" ? "协作文档工具栏" : "Collaborative document toolbar"}>
           <ToolButton disabled={!tiptap?.can().undo()} label={locale === "zh" ? "撤销" : "Undo"} onClick={command((instance) => instance.chain().focus().undo().run())}><RiArrowGoBackLine /></ToolButton>
           <ToolButton disabled={!tiptap?.can().redo()} label={locale === "zh" ? "重做" : "Redo"} onClick={command((instance) => instance.chain().focus().redo().run())}><RiArrowGoForwardLine /></ToolButton>
-          <span className="zest-collaboration-divider" />
+          <span className="liushui-collaboration-divider" />
           <ToolButton active={tiptap?.isActive("heading", { level: 1 })} label={locale === "zh" ? "标题 1" : "Heading 1"} onClick={command((instance) => instance.chain().focus().toggleHeading({ level: 1 }).run())}><RiH1 /></ToolButton>
           <ToolButton active={tiptap?.isActive("heading", { level: 2 })} label={locale === "zh" ? "标题 2" : "Heading 2"} onClick={command((instance) => instance.chain().focus().toggleHeading({ level: 2 }).run())}><RiH2 /></ToolButton>
-          <span className="zest-collaboration-divider" />
+          <span className="liushui-collaboration-divider" />
           <ToolButton active={tiptap?.isActive("bold")} label={locale === "zh" ? "加粗" : "Bold"} onClick={command((instance) => instance.chain().focus().toggleBold().run())}><RiBold /></ToolButton>
           <ToolButton active={tiptap?.isActive("italic")} label={locale === "zh" ? "斜体" : "Italic"} onClick={command((instance) => instance.chain().focus().toggleItalic().run())}><RiItalic /></ToolButton>
           <ToolButton active={tiptap?.isActive("strike")} label={locale === "zh" ? "删除线" : "Strike"} onClick={command((instance) => instance.chain().focus().toggleStrike().run())}><RiStrikethrough /></ToolButton>
           <ToolButton active={tiptap?.isActive("link")} label={locale === "zh" ? "链接" : "Link"} onClick={() => { setLinkValue(tiptap?.getAttributes("link").href ?? ""); setLinkOpen((current) => !current); }}><RiLink /></ToolButton>
-          <span className="zest-collaboration-divider" />
+          <span className="liushui-collaboration-divider" />
           <ToolButton active={tiptap?.isActive("bulletList")} label={locale === "zh" ? "无序列表" : "Bullet list"} onClick={command((instance) => instance.chain().focus().toggleBulletList().run())}><RiListUnordered /></ToolButton>
           <ToolButton active={tiptap?.isActive("orderedList")} label={locale === "zh" ? "有序列表" : "Ordered list"} onClick={command((instance) => instance.chain().focus().toggleOrderedList().run())}><RiListOrdered /></ToolButton>
           <ToolButton active={tiptap?.isActive("taskList")} label={locale === "zh" ? "待办清单" : "Task list"} onClick={command((instance) => instance.chain().focus().toggleTaskList().run())}><RiListCheck2 /></ToolButton>
@@ -255,16 +255,16 @@ function CollaborationEditor({ accent, locale, onFeatureUsed, provider }: { acce
           <ToolButton active={tiptap?.isActive("code")} label={locale === "zh" ? "行内代码" : "Inline code"} onClick={command((instance) => instance.chain().focus().toggleCode().run())}><RiCodeLine /></ToolButton>
         </div>
         {linkOpen ? (
-          <form className="zest-collaboration-link-popover" onSubmit={submitLink}>
+          <form className="liushui-collaboration-link-popover" onSubmit={submitLink}>
             <input autoFocus onChange={(event) => setLinkValue(event.target.value)} placeholder="https://" value={linkValue} />
             <button type="submit">{locale === "zh" ? "应用" : "Apply"}</button>
           </form>
         ) : null}
       </div>
-      <div className="zest-collaboration-page">
+      <div className="liushui-collaboration-page">
         <EditorContent editor={tiptap} />
       </div>
-      <footer className="zest-collaboration-footer">
+      <footer className="liushui-collaboration-footer">
         <span>{locale === "zh" ? `${words} 词 · ${characters} 字符` : `${words} words · ${characters} characters`}</span>
       </footer>
     </div>

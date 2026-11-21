@@ -79,7 +79,7 @@ function CanvasToolButton({ active = false, children, label, onClick }: { active
   return (
     <button
       aria-label={label}
-      className={`zest-canvas-tool ${active ? "zest-canvas-tool-active" : ""}`}
+      className={`liushui-canvas-tool ${active ? "liushui-canvas-tool-active" : ""}`}
       onClick={onClick}
       title={label}
       type="button"
@@ -108,7 +108,7 @@ export function CollaborationCanvas({ accent, locale, onFeatureUsed, provider }:
   const initialCameraSetRef = useRef(false);
   const surfaceRef = useRef<SVGSVGElement>(null);
 
-  const strokes = useMemo(() => provider?.document.getArray<Y.Map<unknown>>("zestsend-canvas-strokes") ?? null, [provider]);
+  const strokes = useMemo(() => provider?.document.getArray<Y.Map<unknown>>("liushui-canvas-strokes") ?? null, [provider]);
   const renderedStrokes = useMemo(() => strokes ? readStrokes(strokes) : [], [strokes, version]);
 
   useEffect(() => {
@@ -306,46 +306,46 @@ export function CollaborationCanvas({ accent, locale, onFeatureUsed, provider }:
   const viewBox = `${camera.x} ${camera.y} ${surfaceSize.width / camera.zoom} ${surfaceSize.height / camera.zoom}`;
 
   return (
-    <div className="zest-canvas-shell" style={{ "--zest-canvas-accent": accent } as CSSProperties}>
-      <div className="zest-canvas-toolbar">
-        <div className="zest-canvas-tools" role="toolbar" aria-label={locale === "zh" ? "画板工具栏" : "Canvas toolbar"}>
+    <div className="liushui-canvas-shell" style={{ "--liushui-canvas-accent": accent } as CSSProperties}>
+      <div className="liushui-canvas-toolbar">
+        <div className="liushui-canvas-tools" role="toolbar" aria-label={locale === "zh" ? "画板工具栏" : "Canvas toolbar"}>
           <CanvasToolButton active={!eraser && !panMode} label={locale === "zh" ? "画笔" : "Pen"} onClick={() => { setEraser(false); setPanMode(false); }}><RiPencilLine /></CanvasToolButton>
           <CanvasToolButton active={eraser} label={locale === "zh" ? "橡皮擦" : "Eraser"} onClick={() => { setEraser(true); setPanMode(false); }}><RiEraserLine /></CanvasToolButton>
           <CanvasToolButton active={panMode} label={locale === "zh" ? "平移画布" : "Pan canvas"} onClick={() => { setEraser(false); setPanMode(true); }}><RiDragMove2Line /></CanvasToolButton>
-          <span className="zest-canvas-divider" />
+          <span className="liushui-canvas-divider" />
           <button
             aria-label={locale === "zh" ? "选择颜色" : "Choose color"}
-            className="zest-canvas-color-trigger"
+            className="liushui-canvas-color-trigger"
             onClick={openColorPicker}
             title={locale === "zh" ? "选择颜色" : "Choose color"}
             type="button"
           >
-            <span className="zest-canvas-current-color" style={{ backgroundColor: color }} />
+            <span className="liushui-canvas-current-color" style={{ backgroundColor: color }} />
             <RiPaletteLine />
           </button>
-          <span className="zest-canvas-divider" />
+          <span className="liushui-canvas-divider" />
           <input
             aria-label={locale === "zh" ? "画笔粗细" : "Brush size"}
-            className="zest-canvas-size"
+            className="liushui-canvas-size"
             max="16"
             min="2"
             onChange={(event) => setSize(Number(event.target.value))}
             type="range"
             value={size}
           />
-          <span className="zest-canvas-divider" />
+          <span className="liushui-canvas-divider" />
           <CanvasToolButton label={locale === "zh" ? "缩小" : "Zoom out"} onClick={() => updateZoom(camera.zoom / 1.25)}><RiZoomOutLine /></CanvasToolButton>
-          <button className="zest-canvas-zoom-value" onClick={resetCamera} title={locale === "zh" ? "重置视图" : "Reset view"} type="button">{Math.round((camera.zoom / (surfaceSize.width / initialWorldWidth)) * 100)}%</button>
+          <button className="liushui-canvas-zoom-value" onClick={resetCamera} title={locale === "zh" ? "重置视图" : "Reset view"} type="button">{Math.round((camera.zoom / (surfaceSize.width / initialWorldWidth)) * 100)}%</button>
           <CanvasToolButton label={locale === "zh" ? "放大" : "Zoom in"} onClick={() => updateZoom(camera.zoom * 1.25)}><RiZoomInLine /></CanvasToolButton>
           <CanvasToolButton label={locale === "zh" ? "重置视图" : "Reset view"} onClick={resetCamera}><RiRestartLine /></CanvasToolButton>
-          <span className="zest-canvas-divider" />
+          <span className="liushui-canvas-divider" />
           <CanvasToolButton label={locale === "zh" ? "撤销我的笔划" : "Undo my stroke"} onClick={undo}><RiArrowGoBackLine /></CanvasToolButton>
           <CanvasToolButton label={locale === "zh" ? "清空画板" : "Clear canvas"} onClick={clear}><RiDeleteBinLine /></CanvasToolButton>
         </div>
       </div>
-      <div className="zest-canvas-surface-wrap">
+      <div className="liushui-canvas-surface-wrap">
         <svg
-          className={`zest-canvas-surface ${eraser ? "zest-canvas-erasing" : panMode ? "zest-canvas-panning" : ""} ${isPanning ? "zest-canvas-panning-active" : ""}`}
+          className={`liushui-canvas-surface ${eraser ? "liushui-canvas-erasing" : panMode ? "liushui-canvas-panning" : ""} ${isPanning ? "liushui-canvas-panning-active" : ""}`}
           onContextMenu={(event) => event.preventDefault()}
           onPointerCancel={finishStroke}
           onPointerDown={startStroke}
@@ -360,11 +360,11 @@ export function CollaborationCanvas({ accent, locale, onFeatureUsed, provider }:
           viewBox={viewBox}
         >
           <defs>
-            <pattern height="250" id="zest-canvas-grid" patternUnits="userSpaceOnUse" width="250">
+            <pattern height="250" id="liushui-canvas-grid" patternUnits="userSpaceOnUse" width="250">
               <path d="M 250 0 L 0 0 0 250" fill="none" stroke="rgb(255 255 255 / 0.035)" strokeWidth="12" />
             </pattern>
           </defs>
-          <rect fill="url(#zest-canvas-grid)" height={surfaceSize.height / camera.zoom} pointerEvents="none" width={surfaceSize.width / camera.zoom} x={camera.x} y={camera.y} />
+          <rect fill="url(#liushui-canvas-grid)" height={surfaceSize.height / camera.zoom} pointerEvents="none" width={surfaceSize.width / camera.zoom} x={camera.x} y={camera.y} />
           {renderedStrokes.filter((stroke) => !stroke.deleted && stroke.points.length).map((stroke) => (
             <path
               d={createPath(stroke.points)}
@@ -378,26 +378,26 @@ export function CollaborationCanvas({ accent, locale, onFeatureUsed, provider }:
           ))}
         </svg>
         {renderedStrokes.every((stroke) => stroke.deleted) ? (
-          <div className="zest-canvas-empty" aria-hidden="true"><RiBrushLine /><span>{locale === "zh" ? "从一笔开始" : "Start with a stroke"}</span></div>
+          <div className="liushui-canvas-empty" aria-hidden="true"><RiBrushLine /><span>{locale === "zh" ? "从一笔开始" : "Start with a stroke"}</span></div>
         ) : null}
       </div>
       <Dialog open={colorPickerOpen} onOpenChange={setColorPickerOpen}>
-        <DialogContent className="zest-canvas-color-dialog max-w-md" role="dialog">
-          <DialogHeader className="zest-canvas-color-dialog-header">
+        <DialogContent className="liushui-canvas-color-dialog max-w-md" role="dialog">
+          <DialogHeader className="liushui-canvas-color-dialog-header">
             <div>
               <p className="text-[0.65rem] font-bold tracking-[0.12em] text-sky-100/40">{locale === "zh" ? "画板" : "CANVAS"}</p>
               <DialogTitle className="mt-1 text-xl sm:text-2xl">{locale === "zh" ? "画笔颜色" : "Ink color"}</DialogTitle>
             </div>
             <DialogClose aria-label={locale === "zh" ? "关闭颜色选择" : "Close color picker"} />
           </DialogHeader>
-          <div className="zest-canvas-color-dialog-body">
-            <div className="zest-canvas-color-preview" style={{ backgroundColor: color }} />
-            <div className="zest-canvas-color-value">
-              <label htmlFor="zest-canvas-hex">HEX</label>
+          <div className="liushui-canvas-color-dialog-body">
+            <div className="liushui-canvas-color-preview" style={{ backgroundColor: color }} />
+            <div className="liushui-canvas-color-value">
+              <label htmlFor="liushui-canvas-hex">HEX</label>
               <div>
                 <input
                   aria-label="HEX"
-                  id="zest-canvas-hex"
+                  id="liushui-canvas-hex"
                   maxLength={7}
                   onChange={(event) => {
                     const value = event.target.value.toUpperCase();
@@ -408,17 +408,17 @@ export function CollaborationCanvas({ accent, locale, onFeatureUsed, provider }:
                   spellCheck={false}
                   value={hexInput}
                 />
-                <label className="zest-canvas-native-color" title={locale === "zh" ? "使用系统取色器" : "Open system color picker"}>
+                <label className="liushui-canvas-native-color" title={locale === "zh" ? "使用系统取色器" : "Open system color picker"}>
                   <input aria-label={locale === "zh" ? "使用系统取色器" : "Open system color picker"} onChange={(event) => selectColor(event.target.value)} type="color" value={color} />
                   <span style={{ backgroundColor: color }} />
                 </label>
               </div>
             </div>
-            <div className="zest-canvas-color-presets" aria-label={locale === "zh" ? "颜色预设" : "Color presets"}>
+            <div className="liushui-canvas-color-presets" aria-label={locale === "zh" ? "颜色预设" : "Color presets"}>
               {colorPresets.map((swatch) => (
                 <button
                   aria-label={swatch}
-                  className={color === swatch ? "zest-canvas-preset-active" : ""}
+                  className={color === swatch ? "liushui-canvas-preset-active" : ""}
                   key={swatch}
                   onClick={() => selectColor(swatch)}
                   style={{ backgroundColor: swatch }}

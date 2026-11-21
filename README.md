@@ -1,6 +1,6 @@
-# ZestSend
+# 流水P2P
 
-ZestSend 是一个开源的 WebRTC 点对点连接网页工具，可自行部署在 Cloudflare 上。
+流水P2P 是一个开源的 WebRTC 点对点连接网页工具，可自行部署在 Cloudflare 上。
 
 支持端对端加密的匿名实时聊天、文件互传、语音通话、视频通话、屏幕共享、同播共享、文本协作、画板等功能，支持点对点直连或 Cloudflare TURN 中转。
 
@@ -8,11 +8,13 @@ ZestSend 是一个开源的 WebRTC 点对点连接网页工具，可自行部署
 
 延续并改进了 [RavelloH/TimePulse](https://github.com/RavelloH/TimePulse) 的玻璃态设计美学。
 
+本仓库基于 [RavelloH/ZestSend](https://github.com/RavelloH/ZestSend) 修改并更名，遵循 MIT 许可证，原作者署名保留。
+
 ## 部署
 
 Fork 本仓库后，在 Cloudflare Dashboard 的 **Workers & Pages** 中依次选择 **Create application** → **Import a repository**，选择自己的 Fork 并完成 GitHub 授权。
 
-在部署设置中保留 Worker 名称为 `zestsend`（需与 `wrangler.jsonc` 一致），选择 `main` 作为生产分支，并设置：
+在部署设置中保留 Worker 名称为 `liushui-p2p`（需与 `wrangler.jsonc` 一致），选择 `main` 作为生产分支，并设置：
 
 | 配置 | 值 |
 | --- | --- |
@@ -33,7 +35,7 @@ Fork 本仓库后，在 Cloudflare Dashboard 的 **Workers & Pages** 中依次�
 
 ## 预览
 
-前往 https://send.ravelloh.com 查看效果。
+前往 https://liushui-p2p.liushuile.dpdns.org 查看效果。
 
 <img width="2478" height="1455" alt="image" src="https://github.com/user-attachments/assets/c842bdce-a80c-4760-947d-b601b1023b1f" />
 <img width="2478" height="1455" alt="image" src="https://github.com/user-attachments/assets/578cf5c6-5ec1-4ba5-a490-a3052cc9bc25" />

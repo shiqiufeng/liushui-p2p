@@ -210,7 +210,7 @@ const roomCopy = {
     roomFullTitle: "Room is full",
     returnHome: "Return home",
     pageTitle: (roomId: string) => `Connecting to room ${roomId}`,
-    roomTitle: (roomId: string) => `ZestSend room ${roomId}`,
+    roomTitle: (roomId: string) => `流水P2P room ${roomId}`,
   },
   zh: {
     connectingTitle: "正在建立端对端连接",
@@ -234,7 +234,7 @@ const roomCopy = {
     roomFullTitle: "房间已满",
     returnHome: "返回首页",
     pageTitle: (roomId: string) => `正在连接房间 ${roomId}`,
-    roomTitle: (roomId: string) => `ZestSend 房间 ${roomId}`,
+    roomTitle: (roomId: string) => `流水P2P 房间 ${roomId}`,
   },
 } as const;
 
@@ -524,7 +524,7 @@ function ConnectionDialog({
     const url = new URL(`/room/${roomId}`, window.location.origin).toString();
     try {
       if (navigator.share) {
-        await navigator.share({ title: `ZestSend ${copy.room} ${roomId}`, url });
+        await navigator.share({ title: `流水P2P ${copy.room} ${roomId}`, url });
         return;
       }
       await navigator.clipboard.writeText(url);
@@ -2527,12 +2527,12 @@ function RoomWorkspace({
         fadeOnly
         fullScreen
         aria-labelledby="connection-ready-title"
-        className="zest-room-dialog backdrop-blur-[10px]"
+        className="liushui-room-dialog backdrop-blur-[10px]"
         style={{ maxHeight: "none", width: "100dvw" }}
       >
         <motion.div
           animate={{ opacity: isExiting ? 0 : 1 }}
-          className="zest-room-safe relative flex h-full min-h-full flex-1 flex-col p-5 sm:p-8"
+          className="liushui-room-safe relative flex h-full min-h-full flex-1 flex-col p-5 sm:p-8"
           transition={{ duration: 0.28, ease: "easeOut" }}
         >
           <header className="flex items-center justify-between gap-4">
@@ -2548,11 +2548,11 @@ function RoomWorkspace({
                 transition={{ duration: 0.5 }}
               >
                 <a
-                  href="https://github.com/RavelloH/ZestSend"
+                  href="https://github.com/RavelloH/流水P2P"
                   rel="noopener noreferrer"
                   target="_blank"
                 >
-                  ZestSend
+                  流水P2P
                 </a>
               </motion.h1>
               <p className="truncate text-sm font-bold tracking-[0.06em] text-sky-100/65 sm:text-xl"># {roomId}</p>
@@ -2594,8 +2594,8 @@ function RoomWorkspace({
                   <div className="w-full max-w-2xl">
                     <RiCheckboxCircleFill aria-hidden="true" className="mx-auto size-12 text-emerald-300" />
                     <p className="mt-5 text-xs font-bold tracking-[0.12em] text-sky-100/50">{workspace.room} {roomId}</p>
-                    <h1 id="connection-ready-title" className="zest-room-heading mt-2 text-3xl font-bold tracking-[0.04em] text-sky-50">{copy.ready}</h1>
-                    <p className="zest-room-copy mx-auto mt-4 max-w-lg text-sm font-medium leading-relaxed tracking-[0.04em] text-sky-100/65">
+                    <h1 id="connection-ready-title" className="liushui-room-heading mt-2 text-3xl font-bold tracking-[0.04em] text-sky-50">{copy.ready}</h1>
+                    <p className="liushui-room-copy mx-auto mt-4 max-w-lg text-sm font-medium leading-relaxed tracking-[0.04em] text-sky-100/65">
                       {copy.readyDescription}
                     </p>
                   </div>
@@ -2688,8 +2688,8 @@ function RoomWorkspace({
                               <div className="flex items-start gap-4">
                           <Icon aria-hidden="true" className="mt-1 size-8 text-sky-200" />
                           <div>
-                            <h1 id="connection-ready-title" className="zest-room-heading text-3xl font-bold tracking-[0.04em] text-sky-50">{title}</h1>
-                            <p className="zest-room-copy mt-2 text-sm font-medium tracking-[0.04em] text-sky-100/60">{workspace.statusHint}</p>
+                            <h1 id="connection-ready-title" className="liushui-room-heading text-3xl font-bold tracking-[0.04em] text-sky-50">{title}</h1>
+                            <p className="liushui-room-copy mt-2 text-sm font-medium tracking-[0.04em] text-sky-100/60">{workspace.statusHint}</p>
                           </div>
                         </div>
                             </div>
@@ -2707,8 +2707,8 @@ function RoomWorkspace({
                     ) : (
                       <div className="mx-auto max-w-xl text-center">
                         <Icon aria-hidden="true" className="mx-auto size-10 text-sky-200" />
-                        <h1 id="connection-ready-title" className="zest-room-heading mt-5 text-3xl font-bold tracking-[0.04em] text-sky-50">{title}</h1>
-                        <p className="zest-room-copy mx-auto mt-3 max-w-md text-sm font-medium leading-relaxed tracking-[0.04em] text-sky-100/60">{description}</p>
+                        <h1 id="connection-ready-title" className="liushui-room-heading mt-5 text-3xl font-bold tracking-[0.04em] text-sky-50">{title}</h1>
+                        <p className="liushui-room-copy mx-auto mt-3 max-w-md text-sm font-medium leading-relaxed tracking-[0.04em] text-sky-100/60">{description}</p>
                         {isRunning ? <p className="mt-6 text-xs font-bold tracking-[0.1em] text-sky-100/40">{workspace.background}</p> : null}
                       </div>
                     )}
@@ -2723,7 +2723,7 @@ function RoomWorkspace({
             activateWorkspace("video");
           }} /> : null}
 
-          <div className="zest-room-dock pointer-events-none absolute inset-x-0 bottom-5 flex justify-center sm:bottom-7">
+          <div className="liushui-room-dock pointer-events-none absolute inset-x-0 bottom-5 flex justify-center sm:bottom-7">
             <div
               className="pointer-events-auto origin-bottom"
               style={{ transform: "scale(clamp(0.46, calc((100vw - 1.5rem) / 45rem), 1))" }}
@@ -2892,7 +2892,7 @@ export default function Room({ locale, roomId }: { locale: RoomLocale; roomId: s
       setCanvasHasContent(false);
       return;
     }
-    const strokes = collaborationProvider.document.getArray<Y.Map<unknown>>("zestsend-canvas-strokes");
+    const strokes = collaborationProvider.document.getArray<Y.Map<unknown>>("liushui-canvas-strokes");
     const refreshCanvasContent = () => {
       const hasContent = strokes.toArray().some((stroke) => (
         !stroke.get("deleted") && ((stroke.get("points") as Y.Array<number> | undefined)?.length ?? 0) > 0

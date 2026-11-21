@@ -124,8 +124,8 @@ const homeCopy: Record<
   }
 > = {
   en: {
-    title: "ZestSend — Private P2P file transfer",
-    heading: "ZestSend — Private P2P file transfer",
+    title: "流水P2P — Private P2P file transfer",
+    heading: "流水P2P — Private P2P file transfer",
     language: "en",
     prefix: "Anonymously",
     codeInputLabel: "Connection code digit",
@@ -133,16 +133,16 @@ const homeCopy: Record<
     footerLinks: ["Language", "Settings", "About"],
     languageDialog: {
       close: "Close language picker",
-      description: "Choose the language used on the ZestSend home page.",
+      description: "Choose the language used on the 流水P2P home page.",
       title: "Language",
     },
     settingsDialog: {
       close: "Close settings",
-      description: "Choose the colors used throughout ZestSend.",
+      description: "Choose the colors used throughout 流水P2P.",
       title: "Appearance",
     },
     aboutDialog: {
-      close: "Close about ZestSend",
+      close: "Close about 流水P2P",
       description: "An open-source P2P connection tool for secure, private data transfer.",
       diagnostics: {
         checking: "Measuring available ICE servers...",
@@ -162,8 +162,8 @@ const homeCopy: Record<
         turn: "TURN",
         unavailable: "Unavailable",
       },
-      intro: "ZestSend is a WebRTC-powered peer-to-peer (P2P) data transfer website that lets you send data securely and privately, without server relays or storage.",
-      title: "About ZestSend",
+      intro: "流水P2P is a WebRTC-powered peer-to-peer (P2P) data transfer website that lets you send data securely and privately, without server relays or storage.",
+      title: "About 流水P2P",
     },
     activities: [
       { word: "chat in real time", icon: "chat" },
@@ -179,8 +179,8 @@ const homeCopy: Record<
     ],
   },
   zh: {
-    title: "ZestSend — 私密 P2P 文件传输",
-    heading: "ZestSend — 私密 P2P 文件传输",
+    title: "流水P2P — 私密点对点文件传输",
+    heading: "流水P2P — 私密点对点文件传输",
     language: "zh-CN",
     prefix: "匿名",
     codeInputLabel: "连接数字第",
@@ -188,16 +188,16 @@ const homeCopy: Record<
     footerLinks: ["语言", "设置", "关于"],
     languageDialog: {
       close: "关闭语言选择",
-      description: "选择 ZestSend 首页使用的语言。",
+      description: "选择 流水P2P 首页使用的语言。",
       title: "语言",
     },
     settingsDialog: {
       close: "关闭设置",
-      description: "选择 ZestSend 使用的背景和强调色。",
+      description: "选择 流水P2P 使用的背景和强调色。",
       title: "外观",
     },
     aboutDialog: {
-      close: "关闭关于 ZestSend",
+      close: "关闭关于 流水P2P",
       description: "开源的 P2P 连接工具，提供安全、私密的 P2P 数据传输。",
       diagnostics: {
         checking: "正在测速可用的 ICE 服务器...",
@@ -217,8 +217,8 @@ const homeCopy: Record<
         turn: "TURN",
         unavailable: "不可用",
       },
-      intro: "ZestSend 是一个基于 WebRTC 的点对点（P2P）数据传输网站，支持安全、私密地传输数据，无需通过服务器中转或存储。",
-      title: "关于 ZestSend",
+      intro: "流水P2P 是一个基于 WebRTC 的点对点（P2P）数据传输网站，支持安全、私密地传输数据，无需通过服务器中转或存储。",
+      title: "关于 流水P2P",
     },
     activities: [
       { word: "畅聊", icon: "chat" },
@@ -408,7 +408,12 @@ function ConnectionCodeInput({
           const progressPosition = isFilled ? "0%" : "100%";
 
           return (
-            <div key={index} className="relative h-14 w-12 sm:h-20 sm:w-20">
+            <div
+              key={index}
+              className="liushui-code-cell h-14 w-12 sm:h-20 sm:w-20"
+              data-filled={isFilled}
+              data-focused={focusedIndex === index}
+            >
               <input
                 ref={(element) => {
                   inputRefs.current[index] = element;
@@ -453,7 +458,7 @@ function ConnectionCodeInput({
                 </motion.span>
                 <motion.span
                   animate={{ backgroundPositionX: progressPosition }}
-                  className="absolute inset-x-0 bottom-0 h-[6px] bg-[length:200%_100%]"
+                  className="absolute inset-x-[26%] bottom-[0.55rem] h-[3px] rounded-full bg-[length:200%_100%] sm:inset-x-[30%]"
                   initial={false}
                   style={{
                     backgroundImage:
@@ -506,15 +511,15 @@ function ProjectAttribution() {
   return (
     <p className="mt-7 inline-flex items-center gap-1.5 text-center text-[clamp(0.7rem,1.6vw,0.95rem)] font-semibold tracking-[0.08em] text-sky-100/75 sm:mt-9">
       <a
-        aria-label="GitHub: RavelloH/ZestSend"
+        aria-label="GitHub: 流水P2P 源码仓库"
         className="inline-flex items-center hover:text-sky-100"
-        href="https://github.com/ravelloh/zestsend"
+        href="https://github.com/shiqiufeng/liushui-p2p"
         rel="noreferrer"
         target="_blank"
       >
         <RiGithubFill aria-hidden="true" className="size-[1.15em]" />
         <LetterCascade
-          text="RavelloH/ZestSend"
+          text="流水P2P"
           className="ml-1.5 text-inherit"
           staggerFrom="center"
         />
@@ -738,12 +743,12 @@ function AboutDialog({
           <div className="flex w-full items-center gap-4">
             <a
               className="inline-flex w-fit items-center gap-2 font-semibold text-sky-100 transition-colors hover:text-white"
-              href="https://github.com/ravelloh/zestsend"
+              href="https://github.com/shiqiufeng/liushui-p2p"
               rel="noreferrer"
               target="_blank"
             >
               <RiGithubFill aria-hidden="true" className="size-5" />
-              RavelloH/ZestSend
+              流水P2P
             </a>
             <button
               aria-label={copy.diagnostics.title}
@@ -898,7 +903,7 @@ export default function Home({ locale = "en" }: { locale?: HomeLocale }) {
 
   useEffect(() => {
     document.documentElement.lang = copy.language;
-    window.localStorage.setItem("zestsend_locale", locale);
+    window.localStorage.setItem("liushui_locale", locale);
   }, [copy.language, locale]);
 
   useEffect(() => {
@@ -929,9 +934,35 @@ export default function Home({ locale = "en" }: { locale?: HomeLocale }) {
     <Layout title={copy.title}>
       <section className="relative h-full min-h-0 w-full overflow-hidden" aria-labelledby="home-title">
         <h1 id="home-title" className="sr-only">{copy.heading}</h1>
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div
+            className="liushui-aurora left-1/2 top-[calc(50%_-_32rem)] h-[30rem] w-[46rem] -translate-x-1/2"
+            style={{
+              background:
+                "radial-gradient(circle, color-mix(in srgb, var(--liushui-accent) 46%, transparent) 0%, transparent 68%)",
+              opacity: 0.45,
+            }}
+          />
+          <div
+            className="liushui-aurora left-[8%] top-[calc(50%_-_4rem)] h-[22rem] w-[26rem]"
+            style={{
+              background:
+                "radial-gradient(circle, color-mix(in srgb, var(--liushui-highlight) 30%, transparent) 0%, transparent 70%)",
+              opacity: 0.32,
+            }}
+          />
+          <div
+            className="liushui-aurora right-[6%] top-[calc(50%_+_2rem)] h-[20rem] w-[24rem]"
+            style={{
+              background:
+                "radial-gradient(circle, color-mix(in srgb, var(--liushui-accent) 28%, transparent) 0%, transparent 70%)",
+              opacity: 0.28,
+            }}
+          />
+        </div>
         <div className="absolute inset-x-0 top-[calc(50%_-_26rem)] h-[400px] sm:top-[calc(50%_-_27rem)]" aria-hidden="true">
           <CursorDrivenParticleTypography
-            text="ZestSend"
+            text="流水P2P"
             particleDensity={2}
             particleSize={1}
             fontSize={180}
@@ -1018,6 +1049,23 @@ export default function Home({ locale = "en" }: { locale?: HomeLocale }) {
           onOpenChange={setDiagnosticsDialogOpen}
           open={isDiagnosticsDialogOpen}
         />
+        <div
+          aria-hidden="true"
+          className="liushui-home-status pointer-events-none absolute inset-x-0 bottom-6 z-10 items-center justify-center gap-2 px-4"
+        >
+          <span className="liushui-pill">
+            <span className="liushui-pill-dot" />
+            {locale === "zh" ? "端到端加密" : "End-to-end encrypted"}
+          </span>
+          <span className="liushui-pill">
+            <span className="liushui-pill-dot" />
+            {locale === "zh" ? "P2P 直连 · WebRTC" : "P2P direct · WebRTC"}
+          </span>
+          <span className="liushui-pill">
+            <span className="liushui-pill-dot" />
+            {locale === "zh" ? "Cloudflare 边缘节点" : "Cloudflare edge"}
+          </span>
+        </div>
       </section>
     </Layout>
   );

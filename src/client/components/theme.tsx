@@ -122,7 +122,7 @@ export const appThemes: readonly AppTheme[] = [
   },
 ] as const;
 
-const storageKey = "zestsend-theme";
+const storageKey = "liushui-theme";
 
 type ThemeContextValue = {
   setThemeId: (id: ThemeId) => void;
@@ -150,8 +150,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     window.localStorage.setItem(storageKey, themeId);
-    document.documentElement.style.setProperty("--zest-scrollbar-thumb", theme.accent);
-  }, [themeId]);
+    const root = document.documentElement;
+    root.style.setProperty("--liushui-scrollbar-thumb", theme.accent);
+    root.style.setProperty("--liushui-accent", theme.accent);
+    root.style.setProperty("--liushui-deep", theme.deep);
+    root.style.setProperty("--liushui-mid", theme.mid);
+    root.style.setProperty("--liushui-highlight", theme.highlight);
+    root.setAttribute("data-liushui-theme", theme.id);
+  }, [themeId, theme.accent, theme.deep, theme.mid, theme.highlight]);
 
   return (
     <ThemeContext.Provider value={{ theme, themeId, setThemeId }}>

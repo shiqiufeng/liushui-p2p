@@ -6,9 +6,9 @@ async function installPeerProbe(page: Page) {
   await page.addInitScript(() => {
     const nativeConstructor = window.RTCPeerConnection;
     const probe = { peers: [] as RTCPeerConnection[] };
-    Object.defineProperty(window, "__zestsendPeerProbe", { configurable: false, value: probe });
+    Object.defineProperty(window, "__liushuiPeerProbe", { configurable: false, value: probe });
     const signalingSockets: WebSocket[] = [];
-    Object.defineProperty(window, "__zestsendSignalingSockets", { configurable: false, value: signalingSockets });
+    Object.defineProperty(window, "__liushuiSignalingSockets", { configurable: false, value: signalingSockets });
     const nativeWebSocket = window.WebSocket;
     Object.defineProperty(window, "WebSocket", {
       configurable: true,
@@ -34,14 +34,14 @@ async function installPeerProbe(page: Page) {
 }
 
 async function peerCount(page: Page) {
-  return page.evaluate(() => (window as unknown as Window & { __zestsendPeerProbe: { peers: RTCPeerConnection[] } })
-    .__zestsendPeerProbe.peers.filter((peer) => peer.sctp !== null).length);
+  return page.evaluate(() => (window as unknown as Window & { __liushuiPeerProbe: { peers: RTCPeerConnection[] } })
+    .__liushuiPeerProbe.peers.filter((peer) => peer.sctp !== null).length);
 }
 
 async function liveSenderKinds(page: Page) {
   return page.evaluate(() => {
-    const peers = (window as unknown as Window & { __zestsendPeerProbe: { peers: RTCPeerConnection[] } })
-      .__zestsendPeerProbe.peers;
+    const peers = (window as unknown as Window & { __liushuiPeerProbe: { peers: RTCPeerConnection[] } })
+      .__liushuiPeerProbe.peers;
     const kinds = peers.filter((peer) => peer.signalingState !== "closed")
       .flatMap((peer) => peer.getSenders().map((sender) => sender.track).filter((track): track is MediaStreamTrack => Boolean(track) && track.readyState === "live"))
       .map((track) => track.kind);
@@ -50,8 +50,8 @@ async function liveSenderKinds(page: Page) {
 }
 
 async function peerDiagnostics(page: Page) {
-  return page.evaluate(() => (window as unknown as Window & { __zestsendPeerProbe: { peers: RTCPeerConnection[] } })
-    .__zestsendPeerProbe.peers.map((peer) => ({
+  return page.evaluate(() => (window as unknown as Window & { __liushuiPeerProbe: { peers: RTCPeerConnection[] } })
+    .__liushuiPeerProbe.peers.map((peer) => ({
       connectionState: peer.connectionState,
       signalingState: peer.signalingState,
       senders: peer.getSenders().map((sender) => sender.track ? `${sender.track.kind}:${sender.track.readyState}` : null).filter(Boolean),
@@ -61,8 +61,8 @@ async function peerDiagnostics(page: Page) {
 
 async function forceIceFailure(page: Page) {
   await page.evaluate(() => {
-    const peers = (window as unknown as Window & { __zestsendPeerProbe: { peers: RTCPeerConnection[] } })
-      .__zestsendPeerProbe.peers;
+    const peers = (window as unknown as Window & { __liushuiPeerProbe: { peers: RTCPeerConnection[] } })
+      .__liushuiPeerProbe.peers;
     const connectedPeers = peers.filter((candidate) => candidate.sctp !== null
       && candidate.signalingState !== "closed"
       && candidate.connectionState === "connected");
@@ -138,7 +138,7 @@ async function createRoomPeer(page: Page, roomId: string, interceptSignaling = t
       blockNewSockets = true;
       if (interceptSignaling) await registerSignalingRoute();
       await page.evaluate(() => {
-        const sockets = (window as unknown as Window & { __zestsendSignalingSockets: WebSocket[] }).__zestsendSignalingSockets;
+        const sockets = (window as unknown as Window & { __liushuiSignalingSockets: WebSocket[] }).__liushuiSignalingSockets;
         const current = [...sockets].reverse().find((socket) => socket.readyState === WebSocket.OPEN);
         if (!current) throw new Error("No open signaling WebSocket was found in the page.");
         current.close(4001, "Signaling interruption under test.");
@@ -215,7 +215,7 @@ test.describe("signaling-only interruptions", () => {
     try {
       await sendChat(pair.bob, "chat-before-refresh");
       await expect(pair.alice.getByText("chat-before-refresh", { exact: true })).toBeVisible();
-      const resumeKey = `zestsend:room:${encodeURIComponent(roomId)}:resume`;
+      const resumeKey = `liushui:room:${encodeURIComponent(roomId)}:resume`;
       const tokenBeforeReload = await pair.alice.evaluate((key) => sessionStorage.getItem(key), resumeKey);
       expect(tokenBeforeReload).not.toBeNull();
       await pair.alice.reload();

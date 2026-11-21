@@ -13,7 +13,7 @@ createRoot(document.getElementById("root")!).render(
   <ThemeProvider>
     <GlobalScrollbars />
     <GlobalLiquidBackground />
-    <div className="zest-viewport relative z-10">
+    <div className="liushui-viewport relative z-10">
       <RouterProvider router={router} />
     </div>
   </ThemeProvider>,

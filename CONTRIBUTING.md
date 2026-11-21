@@ -1,4 +1,4 @@
-# Contributing to ZestSend
+# Contributing to 流水P2P
 
 Thanks for contributing.
 
