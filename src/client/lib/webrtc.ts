@@ -852,6 +852,10 @@ export class NativeWebRTCSession {
   attachFileTransferManager(manager: FileTransferManager | null): void { this.fileTransferManager = manager; }
   get dataChannel(): RTCDataChannel | null { return this.channels.interactive; }
   get collaborationReady(): boolean { return this.channels.collaboration?.readyState === "open"; }
+  get collaborationBufferedAmount(): number | null {
+    const channel = this.channels.collaboration;
+    return channel?.readyState === "open" ? channel.bufferedAmount : null;
+  }
   get media(): MediaTransport { return this.mediaTransport; }
   get lifecycle(): Pick<SessionStatus, "p2pState" | "remoteSeatState" | "seatState" | "signalingState"> {
     return {
