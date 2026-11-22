@@ -351,10 +351,20 @@ const detailTranslation: Record<string, string> = {
   "Reconnecting data channels": "正在重新连接数据通道",
   "Waiting for the other participant to reconnect": "正在等待另一位参与者重新连接",
   "The signaling WebSocket could not be opened.": "无法打开信令 WebSocket",
+  "No data channel could be opened": "数据通道打不开",
+  "Direct connection failed; retrying did not help.":
+    "直连失败：多次重试仍未连通，请退出后重新进入房间。",
+  "Direct connection failed and no TURN relay is configured. Both sides are probably behind carrier NAT.":
+    "直连失败：双方大概率都在运营商网络后面，服务端又没配 TURN 中继，打不通。",
 };
 
 function localizedDetail(locale: RoomLocale, detail: string): string {
-  return locale === "zh" ? (detailTranslation[detail] ?? detail) : detail;
+  if (locale !== "zh") return detail;
+  const mapped = detailTranslation[detail];
+  if (mapped) return mapped;
+  const retry = /^Direct connection attempt (\d+) timed out; retrying$/.exec(detail);
+  if (retry) return `第 ${retry[1]} 次直连超时，正在重试`;
+  return detail;
 }
 
 function latencyColor(latency: number, realtimeConnection = false): string {

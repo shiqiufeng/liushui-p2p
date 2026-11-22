@@ -210,6 +210,17 @@ type StunCandidate = {
   server: RTCIceServer;
 };
 
+/**
+ * 直连（STUN 打洞）超时：到点未 connected 就判定这一轮失败。
+ * 浏览器原生把 checking 挂到 30 秒以上，期间界面完全静止，用户只会看到「一直转圈」。
+ */
+const PEER_CONNECT_TIMEOUT_FIRST_MS = 20_000;
+const PEER_CONNECT_TIMEOUT_RETRY_MS = 12_000;
+/** 连续失败多少次后停止自动重连，改为明确的失败结论。 */
+const MAX_DIRECT_FAILURES = 3;
+const DIRECT_FAILED = "Direct connection failed; retrying did not help.";
+const DIRECT_FAILED_NO_RELAY = "Direct connection failed and no TURN relay is configured. Both sides are probably behind carrier NAT.";
+
 const PUBLIC_STUN_CANDIDATES: StunCandidate[] = [
   { provider: "google", server: { urls: "stun:stun.l.google.com:19302" } },
   { provider: "google", server: { urls: "stun:stun1.l.google.com:19302" } },
@@ -623,6 +634,12 @@ export class NativeWebRTCSession {
   private hasAdmittedSeat = false;
   private peer: RTCPeerConnection | null = null;
   private peerGeneration = 0;
+  /** 连续直连失败次数：用于把无限静默重试变成可解释的失败。 */
+  private directFailureStreak = 0;
+  /** 本轮建立过多少个 RTCPeerConnection：只要没连上就重建，说明上一轮已经失败。 */
+  private peerAttempts = 0;
+  /** 连续失败到上限后停止自动重连，避免永远转圈。 */
+  private directFailureCeilingReached = false;
   private peerRestarting = false;
   private connectedNotified = false;
   private pendingSignals: V2Signal[] = [];
@@ -1207,6 +1224,9 @@ export class NativeWebRTCSession {
       this.remotePeerSessionId = null;
       this.stopDataChannelLatencyProbe(); this.closeDataChannels(); this.mediaTransport.detachPeer();
       this.peer?.close(); this.peer = null; this.peerRestarting = false; this.connectedNotified = false;
+      this.directFailureStreak = 0;
+      this.peerAttempts = 0;
+      this.directFailureCeilingReached = false;
       this.reportStatus({ detail: "Waiting for another participant", p2pState: "waiting", remoteSeatState: this.remoteSeatState, state: "connected" });
       this.setStep("p2p", { state: "pending", detail: "Waiting for the other participant to join the room" });
       this.setStep("dataChannel", { channels: 0, state: "pending", detail: "Waiting for data channel", transferred: this.dataTransfer() });
@@ -1338,6 +1358,16 @@ export class NativeWebRTCSession {
     if (this.remoteParticipantJoined) this.reportStatus({ p2pState: "negotiating", state: this.signalingState === "connected" ? "connected" : "reconnecting" });
     const peer = new RTCPeerConnection({ iceServers: this.selectedServers });
     const generation = ++this.peerGeneration;
+    this.peerAttempts += 1;
+    if (this.peerAttempts > MAX_DIRECT_FAILURES && !this.directFailureCeilingReached) {
+      // 已经在没有连上的情况下反复重建：不再陪着浏览器空转，直接给结论。
+      this.directFailureCeilingReached = true;
+      const reason = this.hasRelayServer() ? DIRECT_FAILED : DIRECT_FAILED_NO_RELAY;
+      this.setStep("p2p", { state: "error", detail: reason });
+      this.setStep("dataChannel", { channels: 0, state: "error", detail: "No data channel could be opened", transferred: this.dataTransfer() });
+      this.reportStatus({ detail: reason, p2pState: "disconnected", state: "reconnecting" });
+      this.onError(reason);
+    }
     this.peer = peer;
     this.peerLocalSlotId = this.slotId;
     this.peerLocalSessionId = this.peerSessionId;
@@ -1345,16 +1375,63 @@ export class NativeWebRTCSession {
     peer.ontrack = (event) => { if (this.peer === peer && generation === this.peerGeneration) this.mediaTransport.handleRemoteTrack(event); };
     peer.onconnectionstatechange = () => {
       if (this.peer !== peer || generation !== this.peerGeneration || this.closed || this.suspended) return;
-      if (peer.connectionState === "failed") this.requestPeerRestart();
       if (peer.connectionState === "connected") {
+        this.directFailureStreak = 0;
+        this.peerAttempts = 0;
+        this.directFailureCeilingReached = false;
         this.setStep("p2p", { state: "active", detail: "P2P connection established" });
         this.reportStatus({ p2pState: this.currentP2PState(), state: this.isP2PHealthy() ? "connected" : "reconnecting" });
         void this.detectConnectionRoute(peer);
       }
       if (peer.connectionState === "disconnected") this.reportStatus({ p2pState: "recovering", state: "reconnecting" });
+      // 浏览器直接判定 failed 时原先只是立刻重连，界面上什么都不变：用户看到的就是无限转圈。
+      if (peer.connectionState === "failed") this.registerDirectFailure();
     };
     peer.ondatachannel = ({ channel }) => { if (this.peer === peer && generation === this.peerGeneration) this.attachDataChannel(channel); };
+
+    // 打洞没有超时兜底时，界面会永远停在「正在接受 P2P 连接请求 / 正在重新连接数据通道」，
+    // 用户看不到任何原因。18 秒仍未连通就当这一轮失败，交给 registerDirectFailure 统一处理。
+    // 首次给足 20 秒（移动网络打洞本来就慢），重试轮次收紧到 12 秒。
+    const attemptTimeout = this.peerAttempts <= 1 ? PEER_CONNECT_TIMEOUT_FIRST_MS : PEER_CONNECT_TIMEOUT_RETRY_MS;
+    setTimeout(() => {
+      if (this.peer !== peer || generation !== this.peerGeneration || this.closed || this.suspended) return;
+      if (peer.connectionState === "connected") return;
+      this.registerDirectFailure();
+    }, attemptTimeout);
+
     return peer;
+  }
+
+  /** 是否配了中继：只在报告失败原因时用，决定提示「缺 TURN」还是「重试无用」。 */
+  private hasRelayServer(): boolean {
+    return this.selectedServers.some((server) => {
+      const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+      return urls.some((url) => url.startsWith("turn:") || url.startsWith("turns:"));
+    });
+  }
+
+  /**
+   * 直连失败统一出口：计数 → 明确告知原因 → 有限次重试。
+   * 达到上限后不再自动重连，把「一直转圈」变成可读的结论。
+   */
+  private registerDirectFailure(): void {
+    if (this.closed || this.suspended || this.directFailureCeilingReached) return;
+    this.directFailureStreak += 1;
+    this.peerAttempts = Math.max(this.peerAttempts, this.directFailureStreak);
+    const reason = this.hasRelayServer() ? DIRECT_FAILED : DIRECT_FAILED_NO_RELAY;
+    this.setStep("dataChannel", { channels: 0, state: "error", detail: "No data channel could be opened", transferred: this.dataTransfer() });
+    if (this.directFailureStreak >= MAX_DIRECT_FAILURES) {
+      this.directFailureCeilingReached = true;
+      this.setStep("p2p", { state: "error", detail: reason });
+      this.reportStatus({ detail: reason, p2pState: "disconnected", state: "reconnecting" });
+      this.onError(reason);
+      return;
+    }
+    const retryNotice = `Direct connection attempt ${this.directFailureStreak} timed out; retrying`;
+    this.setStep("p2p", { state: "error", detail: retryNotice });
+    this.reportStatus({ detail: retryNotice, p2pState: "recovering", state: "reconnecting" });
+    this.onError(retryNotice);
+    this.requestPeerRestart();
   }
 
   private async flushSignals(): Promise<void> {
