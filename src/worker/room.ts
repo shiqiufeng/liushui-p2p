@@ -49,6 +49,9 @@ type RoomState = {
   version: 2;
   epoch: number;
   mode: RoomMode;
+  /** 房间容量：创建者决定，2-6。configured 为 true 后不再允许改变。 */
+  capacity: number;
+  configured: boolean;
   offererSlotId: string | null;
   slots: SlotState[];
 };
@@ -62,6 +65,7 @@ type ParsedMessage = {
   type?: string;
   mode?: string;
   roomMode?: unknown;
+  capacity?: unknown;
   to?: unknown;
   resumeToken?: unknown;
   token?: unknown;
@@ -80,15 +84,20 @@ const STORAGE_KEY = "room-state-v2";
 const textEncoder = new TextEncoder();
 
 function emptyState(): RoomState {
-  return { version: 2, epoch: 0, mode: "duo", offererSlotId: null, slots: [] };
+  return { version: 2, epoch: 0, mode: "duo", capacity: DUO_PEERS, configured: false, offererSlotId: null, slots: [] };
 }
 
 function isRoomMode(value: unknown): value is RoomMode {
   return value === "duo" || value === "group";
 }
 
+function clampCapacity(value: unknown, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.min(GROUP_PEERS, Math.max(DUO_PEERS, Math.floor(value)));
+}
+
 function capacityFor(state: RoomState): number {
-  return state.mode === "group" ? GROUP_PEERS : DUO_PEERS;
+  return clampCapacity(state.capacity, state.mode === "group" ? GROUP_PEERS : DUO_PEERS);
 }
 
 function isHelloMode(value: unknown): value is HelloMode {
@@ -140,10 +149,14 @@ function normalizeState(value: unknown): RoomState {
   const offererSlotId = typeof value.offererSlotId === "string" && slots.some((slot) => slot.slotId === value.offererSlotId)
     ? value.offererSlotId
     : slots[0]?.slotId ?? null;
+  const mode: RoomMode = isRoomMode(value.mode) ? value.mode : "duo";
   return {
     version: 2,
     epoch: typeof value.epoch === "number" && Number.isFinite(value.epoch) ? Math.max(0, Math.floor(value.epoch)) : 0,
-    mode: isRoomMode(value.mode) ? value.mode : "duo",
+    mode,
+    capacity: clampCapacity(value.capacity, mode === "group" ? GROUP_PEERS : DUO_PEERS),
+    // 旧状态没有 configured 字段：只要存过就视为已定型，避免老房间被后来者改容量。
+    configured: typeof value.configured === "boolean" ? value.configured : true,
     offererSlotId,
     slots,
   };
@@ -203,6 +216,11 @@ export class Room extends DurableObject<Env> {
 
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+      const url = new URL(request.url);
+      if (url.pathname === "/status") {
+        const status = await this.peekStatus();
+        return Response.json(status, { headers: { "Cache-Control": "no-store" } });
+      }
       return new Response("Expected a WebSocket upgrade.", { status: 426 });
     }
 
@@ -281,7 +299,8 @@ export class Room extends DurableObject<Env> {
             ? "auto-response-v3"
             : "legacy-json";
           const roomMode = isRoomMode(parsed.roomMode) ? parsed.roomMode : undefined;
-          await this.admit(socket, mode, resumeToken, attachment, heartbeatProtocol, roomMode);
+          const requestedCapacity = typeof parsed.capacity === "number" ? parsed.capacity : undefined;
+          await this.admit(socket, mode, resumeToken, attachment, heartbeatProtocol, roomMode, requestedCapacity);
           return;
         }
         // Preserve clients that raced their first signal ahead of the legacy ping.
@@ -399,6 +418,7 @@ export class Room extends DurableObject<Env> {
     pendingAttachment: SocketAttachment,
     heartbeatProtocol: SignalingHeartbeatProtocol,
     requestedRoomMode?: RoomMode,
+    requestedCapacity?: number,
   ): Promise<{ state: RoomState; slot: SlotState } | null> {
     let resumeTokenForClient: string | null = null;
     const now = Date.now();
@@ -446,24 +466,23 @@ export class Room extends DurableObject<Env> {
         state.epoch += 1;
       }
     } else {
-      // 房间模式由第一个进入的人决定：双人房与多人房不能混用，
-      // 否则两边对「还剩几个位置」的理解不一致，信令也会串台。
-      // 旧客户端不带 roomMode，一律按双人房处理。
+      // 房间容量由创建者决定（首个进入的人），之后的加入者必须走与容量匹配的页面：
+      // 2 人房是双人房（全功能），3-6 人是多人房（mesh）。旧客户端不带 roomMode，
+      // 一律按双人房处理。
       const joiningMode: RoomMode = requestedRoomMode ?? "duo";
-      if (state.slots.length > 0 && joiningMode !== state.mode) {
-        this.sendErrorAndClose(
-          socket,
-          "mode-mismatch",
-          state.mode === "group"
-            ? "This room is in group mode."
-            : "This room is in two-person mode.",
-          4_022,
-        );
-        return null;
-      }
-      if (state.slots.length === 0 && joiningMode !== state.mode) {
+      if (!state.configured) {
         state.mode = joiningMode;
+        state.capacity = joiningMode === "duo"
+          ? DUO_PEERS
+          : clampCapacity(requestedCapacity, GROUP_PEERS);
+        state.configured = true;
         state.epoch += 1;
+      } else if (joiningMode === "duo" && capacityFor(state) > DUO_PEERS) {
+        this.sendErrorAndClose(socket, "mode-mismatch", `This room seats ${capacityFor(state)} people. Open the group link instead.`, 4_022);
+        return null;
+      } else if (joiningMode === "group" && capacityFor(state) <= DUO_PEERS) {
+        this.sendErrorAndClose(socket, "mode-mismatch", "This room is a two-person room. Open the duo link instead.", 4_022);
+        return null;
       }
       const hasDisconnectedLease = state.slots.some((candidate) => candidate.connectionId === null && candidate.leaseExpiresAt !== null);
       if (state.slots.length >= capacityFor(state)) {
@@ -638,6 +657,18 @@ export class Room extends DurableObject<Env> {
       await this.scheduleAlarm(loaded.state);
     }
     return { state: loaded.state };
+  }
+
+  /** 只读快照：给首页判断「这个号码是新建还是加入」，不改动任何状态。 */
+  private async peekStatus(): Promise<{ exists: boolean; capacity: number; peers: number; mode: RoomMode }> {
+    const stored = await this.ctx.storage.get<unknown>(STORAGE_KEY);
+    const state = normalizeState(stored);
+    return {
+      exists: state.configured || state.slots.length > 0,
+      capacity: capacityFor(state),
+      peers: state.slots.length,
+      mode: state.mode,
+    };
   }
 
   private async loadState(): Promise<{ state: RoomState; changed: boolean; disconnected: InactiveConnection[] }> {

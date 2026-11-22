@@ -239,7 +239,7 @@ const roomCopy = {
     leave: "退出",
     share: "分享",
     copied: "房间链接已复制",
-    roomFullDescription: "这个房间已有两位参与者，请换一个四位房间号后重试。",
+    roomFullDescription: "这个房间已有两位参与者，请换一个六位房间号后重试。",
     roomFullTitle: "房间已满",
     returnHome: "返回首页",
     pageTitle: (roomId: string) => `正在连接房间 ${roomId}`,

@@ -14,8 +14,8 @@ export function HomeMascot({ locale }: { locale: "zh" | "en" }) {
 
   const line =
     locale === "zh"
-      ? "房间现在能坐 6 个人啦，输入同一个数字就能进来。"
-      : "Rooms now seat up to 6. Share the same 4 digits to join.";
+      ? "输入同一个六位数字就能进来，人数上限创建时自己选。"
+      : "Share the same 6 digits to join — the creator picks the seat limit.";
 
   return (
     <div

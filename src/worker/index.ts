@@ -78,7 +78,7 @@ app.get("/en", (context) => localizedResponse(context.req.raw, "en", context.env
 app.get("/zh", (context) => localizedResponse(context.req.raw, "zh", context.env.ASSETS));
 
 function roomIsValid(roomId: string | undefined): roomId is string {
-  return /^\d{4}$/.test(roomId ?? "");
+  return /^\d{6}$/.test(roomId ?? "");
 }
 
 function roomFor(env: ApiBindings, roomId: string) {
@@ -109,6 +109,19 @@ app.get("/zh/room/:roomId", (context) => localizedRoomResponse(context, "zh"));
 function methodNotAllowed(message: string): Response {
   return Response.json({ message }, { status: 405 });
 }
+
+app.get("/api/rooms/:roomId/status", async (context) => {
+  const roomId = context.req.param("roomId");
+  if (!roomIsValid(roomId)) return context.json({ message: "Invalid room ID." }, 400);
+
+  const request = new Request(new URL("/status", context.req.url), { method: "GET" });
+  const response = await roomFor(context.env, roomId).fetch(request);
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "no-store");
+  return new Response(response.body, { status: response.status, headers });
+});
+
+app.all("/api/rooms/:roomId/status", () => methodNotAllowed("Method not allowed"));
 
 app.get("/api/rooms/:roomId/ws", async (context) => {
   const roomId = context.req.param("roomId");

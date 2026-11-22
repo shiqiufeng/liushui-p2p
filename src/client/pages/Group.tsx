@@ -12,7 +12,7 @@ import {
   RiMicOffLine,
   RiSendPlane2Fill,
 } from "@remixicon/react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Layout from "../components/Layout";
 import { MeshRoom, type MeshPeer, type MeshSnapshot } from "../lib/mesh";
@@ -55,6 +55,8 @@ type Copy = {
   full: string;
   fullHint: string;
   needCode: string;
+  seats: string;
+  seatsHint: string;
   shareFailed: string;
   camFailed: string;
   micFailed: string;
@@ -63,7 +65,7 @@ type Copy = {
 
 const copyZh: Copy = {
   lobbyTitle: "多人房",
-  lobbyHint: "输入同一个四位数字即可进入，最多 6 人同时在线。",
+  lobbyHint: "输入同一个六位数字即可进入，人数上限由创建者决定（2-6 人）。",
   join: "进入房间",
   back: "返回",
   room: "房间",
@@ -86,8 +88,10 @@ const copyZh: Copy = {
   send: "发送",
   emptyChat: "还没有消息，先打个招呼。",
   full: "房间已满",
-  fullHint: "这个房间已经坐满 6 个人，换一个号码或者等有人离开。",
-  needCode: "请输入四位数字",
+  fullHint: "这个房间已经坐满，换一个号码或者等有人离开。",
+  needCode: "请输入六位数字",
+  seats: "房间人数",
+  seatsHint: "2 人走双人房（文件传输、画板、远程控制全都有），3-6 人走多人房。",
   shareFailed: "无法共享屏幕，可能是权限被拒绝或浏览器不支持。",
   camFailed: "无法打开摄像头。",
   micFailed: "无法打开麦克风。",
@@ -96,7 +100,7 @@ const copyZh: Copy = {
 
 const copyEn: Copy = {
   lobbyTitle: "Group room",
-  lobbyHint: "Share the same 4 digits. Up to 6 people at once.",
+  lobbyHint: "Share the same 6 digits. Seat count is set by whoever creates the room (2-6).",
   join: "Join room",
   back: "Back",
   room: "Room",
@@ -119,8 +123,10 @@ const copyEn: Copy = {
   send: "Send",
   emptyChat: "No messages yet. Say hi.",
   full: "Room is full",
-  fullHint: "All 6 seats are taken. Try another code or wait for someone to leave.",
-  needCode: "Enter 4 digits",
+  fullHint: "All seats are taken. Try another code or wait for someone to leave.",
+  needCode: "Enter 6 digits",
+  seats: "Room size",
+  seatsHint: "2 people opens the duo room (files, whiteboard, remote control). 3-6 opens the group room.",
   shareFailed: "Screen sharing failed — permission denied or unsupported browser.",
   camFailed: "Could not open the camera.",
   micFailed: "Could not open the microphone.",
@@ -135,18 +141,29 @@ function attachStream(element: HTMLVideoElement | HTMLAudioElement | null, strea
   if (stream && element instanceof HTMLVideoElement) void element.play().catch(() => undefined);
 }
 
+const SEAT_OPTIONS = [2, 3, 4, 5, 6] as const;
+
 function Lobby({ locale, copy }: { locale: "zh" | "en"; copy: Copy }) {
   const navigate = useNavigate();
   const [code, setCode] = useState("");
+  const [seats, setSeats] = useState(6);
   const [error, setError] = useState<string | null>(null);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (!/^\d{4}$/.test(code)) {
+    if (!/^\d{6}$/.test(code)) {
       setError(copy.needCode);
       return;
     }
-    void navigate({ to: locale === "zh" ? "/zh/group/$roomId" : "/en/group/$roomId", params: { roomId: code } });
+    if (seats === 2) {
+      void navigate({ to: locale === "zh" ? "/zh/room/$roomId" : "/en/room/$roomId", params: { roomId: code } });
+      return;
+    }
+    void navigate({
+      to: locale === "zh" ? "/zh/group/$roomId" : "/en/group/$roomId",
+      params: { roomId: code },
+      search: { cap: seats },
+    });
   };
 
   return (
@@ -163,14 +180,41 @@ function Lobby({ locale, copy }: { locale: "zh" | "en"; copy: Copy }) {
           autoFocus
           className="mt-6 w-full rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-center text-2xl tracking-[0.5em] text-white outline-none transition focus:border-sky-300/60 focus:shadow-[0_0_0_3px_rgba(103,213,255,0.14)]"
           inputMode="numeric"
-          maxLength={4}
+          maxLength={6}
           onChange={(event) => {
-            setCode(event.target.value.replace(/\D/g, "").slice(0, 4));
+            setCode(event.target.value.replace(/\D/g, "").slice(0, 6));
             setError(null);
           }}
-          placeholder="0000"
+          placeholder="000000"
           value={code}
         />
+        <div className="mt-5">
+          <div className="flex items-baseline justify-between">
+            <span className="text-[11px] font-semibold tracking-[0.08em] text-sky-100/60">{copy.seats}</span>
+            <span className="font-mono text-xs text-sky-100/45">{seats} / 6</span>
+          </div>
+          <div className="mt-2 grid grid-cols-5 gap-1.5">
+            {SEAT_OPTIONS.map((option) => {
+              const active = option === seats;
+              return (
+                <button
+                  key={option}
+                  aria-pressed={active}
+                  className={`rounded-lg border py-2.5 text-sm font-semibold transition ${
+                    active
+                      ? "border-sky-300/70 bg-sky-300/15 text-sky-50"
+                      : "border-white/10 bg-white/[0.06] text-sky-100/90 hover:border-white/30 hover:text-sky-50"
+                  }`}
+                  onClick={() => setSeats(option)}
+                  type="button"
+                >
+                  {option}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-sky-100/40">{copy.seatsHint}</p>
+        </div>
         {error ? <p className="mt-2 text-xs text-amber-300/90">{error}</p> : null}
         <button
           className="mt-4 w-full rounded-xl bg-gradient-to-b from-sky-300 to-sky-500 px-4 py-3 text-sm font-semibold text-slate-900 transition hover:brightness-105 active:translate-y-px"
@@ -219,11 +263,19 @@ function PeerTile({ copy, peer }: { copy: Copy; peer: MeshPeer }) {
   );
 }
 
+function parseCapacity(value: unknown, fallback = 6): number {
+  const raw = typeof value === "string" ? Number.parseInt(value, 10) : typeof value === "number" ? value : Number.NaN;
+  if (!Number.isFinite(raw)) return fallback;
+  return Math.min(6, Math.max(2, Math.floor(raw)));
+}
+
 export default function Group({ locale, roomId }: { locale: "zh" | "en"; roomId?: string }) {
   const copy = locale === "zh" ? copyZh : copyEn;
   const navigate = useNavigate();
+  const search = useSearch({ strict: false }) as { cap?: unknown };
+  const capacity = useMemo(() => parseCapacity(search.cap), [search.cap]);
   const meshRef = useRef<MeshRoom | null>(null);
-  const [snapshot, setSnapshot] = useState<MeshSnapshot>({ peers: [], selfId: null, state: "connecting", detail: null });
+  const [snapshot, setSnapshot] = useState<MeshSnapshot>({ peers: [], selfId: null, state: "connecting", detail: null, capacity: 6 });
   const [messages, setMessages] = useState<ChatEntry[]>([]);
   const [draft, setDraft] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
@@ -243,14 +295,14 @@ export default function Group({ locale, roomId }: { locale: "zh" | "en"; roomId?
         setMessages((current) => [...current, { id: message.id, mine: false, peerId: message.peerId, text: message.text, at: message.sentAt }]);
       },
       onError: (message) => setNotice(message),
-    });
+    }, capacity);
     meshRef.current = mesh;
     mesh.connect();
     return () => {
       mesh.close();
       meshRef.current = null;
     };
-  }, [roomId]);
+  }, [roomId, capacity]);
 
   useEffect(() => {
     if (!notice) return;
@@ -386,7 +438,7 @@ export default function Group({ locale, roomId }: { locale: "zh" | "en"; roomId?
           <div className="ml-auto flex items-center gap-2">
             <span className="hidden items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-sky-100/70 sm:inline-flex">
               <RiGroupLine aria-hidden="true" className="size-3.5" />
-              {snapshot.peers.length + 1}/{6} {copy.participants}
+              {snapshot.peers.length + 1}/{snapshot.capacity} {copy.participants}
             </span>
             <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] ${encrypted ? "border-emerald-300/25 bg-emerald-400/10 text-emerald-300" : "border-amber-300/25 bg-amber-400/10 text-amber-300"}`}>
               <RiLock2Fill aria-hidden="true" className="size-3" />

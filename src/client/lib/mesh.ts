@@ -65,6 +65,8 @@ export type MeshSnapshot = {
   selfId: string | null;
   state: "connecting" | "online" | "reconnecting" | "full" | "closed" | "error";
   detail: string | null;
+  /** 房间容量，由创建者决定，服务端 welcome 回填。 */
+  capacity: number;
 };
 
 export type MeshChatMessage = { id: string; peerId: string; text: string; sentAt: number };
@@ -455,13 +457,14 @@ export class MeshRoom {
   private reconnectAttempt = 0;
   private reconnectTimer: number | undefined;
   private resumeToken: string | null = null;
-  private snapshot: MeshSnapshot = { peers: [], selfId: null, state: "connecting", detail: null };
+  private snapshot: MeshSnapshot = { peers: [], selfId: null, state: "connecting", detail: null, capacity: MAX_PEERS };
   private closed = false;
   private readonly localTracks: Partial<Record<MediaSlotId, MediaStreamTrack | null>> = {};
 
   constructor(
     private readonly roomId: string,
     private readonly handlers: MeshHandlers = {},
+    private readonly requestedCapacity: number = MAX_PEERS,
   ) {}
 
   get snapshotValue(): MeshSnapshot {
@@ -527,6 +530,7 @@ export class MeshRoom {
           type: "hello",
           mode,
           roomMode: "group",
+          capacity: this.requestedCapacity,
           capabilities: [SIGNALING_HEARTBEAT_CAPABILITY],
         };
         if (mode === "resume-signaling" && this.resumeToken) hello.resumeToken = this.resumeToken;
@@ -589,6 +593,7 @@ export class MeshRoom {
 
     if (message.type === "welcome") {
       this.snapshot.selfId = message.slotId ?? message.peerId ?? this.snapshot.selfId;
+      if (typeof message.capacity === "number") this.snapshot.capacity = message.capacity;
       if (typeof message.resumeToken === "string") this.resumeToken = message.resumeToken;
       this.reconnectAttempt = 0;
       this.startHeartbeat(this.socketGeneration);
@@ -780,7 +785,7 @@ export class MeshRoom {
       audio: link.audio,
       active: Boolean(link.screen ?? link.camera),
     }));
-    this.snapshot = { peers, selfId: this.snapshot.selfId, state, detail };
+    this.snapshot = { peers, selfId: this.snapshot.selfId, state, detail, capacity: this.snapshot.capacity };
     this.handlers.onSnapshot?.(this.snapshotValue);
   }
 }

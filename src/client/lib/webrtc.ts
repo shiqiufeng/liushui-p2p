@@ -198,7 +198,7 @@ type ServerMessage =
   | { epoch?: number; offererSlotId?: string; peerId?: string; peerSessionId?: string; slotId?: string; type: "peer-disconnected" | "peer-reconnected" | "replaced" }
   | { epoch?: number; peerId?: string; peerSessionId?: string; reason?: "explicit-leave" | "lease-expired"; slotId?: string; type: "peer-left" }
   | SignalMessage
-  | { code?: "room-full" | "room-reserved" | "resume-invalid"; message: string; retryAfterMs?: number; type: "error" }
+  | { code?: "room-full" | "room-reserved" | "resume-invalid" | "mode-mismatch"; message: string; retryAfterMs?: number; type: "error" }
   | { type: "left" }
   | { type: "pong" };
 
@@ -1218,6 +1218,14 @@ export class NativeWebRTCSession {
         this.setStep("websocket", { state: "checking", detail: "Room temporarily reserved; retrying automatically" });
         this.reportStatus({ detail: "Room temporarily reserved; retrying automatically", retryAfterMs: message.retryAfterMs, signalingState: "reconnecting", state: this.isP2PHealthy() ? "connected" : "reserved" });
         this.scheduleReservedRetry(message.retryAfterMs); return;
+      }
+      if (message.code === "mode-mismatch") {
+        // 房间容量由创建者决定：双人房页面进不了多人房，反之亦然。
+        const seats = /seats (\d+) people/.exec(message.message ?? "")?.[1];
+        this.fail(seats ? `这个房间是 ${seats} 人房，请用多人房链接进入。` : "这个房间的人数和当前页面不匹配，请换用对应链接。");
+        this.suspended = true;
+        try { this.socket?.close(); } catch { /* socket 可能已经关闭 */ }
+        return;
       }
       if (message.code === "resume-invalid") {
         const p2pHealthy = this.isP2PHealthy();
