@@ -85,17 +85,6 @@ const homeCopy: Record<
     activities: Activity[];
     codeInputLabel: string;
     codeHint: string;
-    createDialog: {
-      title: string;
-      description: string;
-      code: string;
-      seats: string;
-      duoNote: string;
-      groupNote: string;
-      confirm: string;
-      reroll: string;
-      close: string;
-    };
     footerLinks: string[];
     languageDialog: {
       close: string;
@@ -140,17 +129,6 @@ const homeCopy: Record<
     prefix: "Anonymously",
     codeInputLabel: "Connection code digit",
     codeHint: "Enter the same six digits to connect",
-    createDialog: {
-      title: "Create a room",
-      description: "This code is still free. Pick how many people can join.",
-      code: "Room code",
-      seats: "Seat limit",
-      duoNote: "2 seats: duo room — file transfer, shared whiteboard and remote control included.",
-      groupNote: "3-6 seats: group room — multi-person tiles, chat and screen sharing.",
-      confirm: "Create and enter",
-      reroll: "Another code",
-      close: "Close",
-    },
     footerLinks: ["Language", "Settings", "About"],
     languageDialog: {
       close: "Close language picker",
@@ -206,17 +184,6 @@ const homeCopy: Record<
     prefix: "匿名",
     codeInputLabel: "连接数字第",
     codeHint: "输入同一个六位数字即可连接",
-    createDialog: {
-      title: "创建房间",
-      description: "这个号码还没有人在用，选择人数上限后创建。",
-      code: "房间号",
-      seats: "人数上限",
-      duoNote: "2 人：双人房，文件传输、共享画板、远程控制全部可用。",
-      groupNote: "3-6 人：多人房，多人同屏、聊天、屏幕共享。",
-      confirm: "创建并进入",
-      reroll: "换一个号码",
-      close: "关闭",
-    },
     footerLinks: ["语言", "设置", "关于"],
     languageDialog: {
       close: "关闭语言选择",
@@ -708,113 +675,8 @@ function SettingsDialog({
   );
 }
 
-const SEAT_CHOICES = [2, 3, 4, 5, 6] as const;
-
-async function fetchRoomStatus(roomId: string): Promise<{ exists: boolean; capacity: number } | null> {
-  try {
-    const response = await fetch(`/api/rooms/${roomId}/status`, {
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-    if (!response.ok) return null;
-    const payload = (await response.json()) as { exists?: unknown; capacity?: unknown };
-    return {
-      exists: payload.exists === true,
-      capacity: typeof payload.capacity === "number" ? payload.capacity : 2,
-    };
-  } catch {
-    return null;
-  }
-}
-
 function randomRoomCode(): string {
   return Array.from({ length: 6 }, () => Math.floor(Math.random() * 10)).join("");
-}
-
-function CreateRoomDialog({
-  locale,
-  code,
-  onOpenChange,
-  onCreate,
-  onReroll,
-  open,
-}: {
-  locale: HomeLocale;
-  code: string;
-  onOpenChange: (open: boolean) => void;
-  onCreate: (capacity: number) => void;
-  onReroll: () => void;
-  open: boolean;
-}) {
-  const copy = homeCopy[locale].createDialog;
-  const [seats, setSeats] = useState(2);
-
-  useEffect(() => {
-    if (open) setSeats(2);
-  }, [open]);
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent aria-describedby="create-dialog-description" aria-labelledby="create-dialog-title" className="!max-w-md">
-        <DialogHeader className="p-5 sm:p-6">
-          <div>
-            <DialogTitle id="create-dialog-title" className="text-xl">{copy.title}</DialogTitle>
-            <DialogDescription id="create-dialog-description" className="mt-1 text-xs sm:text-sm">{copy.description}</DialogDescription>
-          </div>
-          <DialogClose aria-label={copy.close} data-dialog-autofocus />
-        </DialogHeader>
-        <div className="space-y-5 p-5 pt-0 sm:p-6 sm:pt-0">
-          <div className="rounded-2xl border border-white/10 bg-black/35 p-4 text-center">
-            <p className="text-[11px] font-semibold tracking-[0.1em] text-sky-100/45">{copy.code}</p>
-            <p className="mt-2 font-mono text-[2rem] font-semibold tracking-[0.28em] text-sky-50">{code}</p>
-            <button
-              className="mt-3 text-[11px] font-semibold text-sky-100/55 underline-offset-4 transition hover:text-sky-100/90 hover:underline"
-              onClick={onReroll}
-              type="button"
-            >
-              {copy.reroll}
-            </button>
-          </div>
-          <div>
-            <div className="flex items-baseline justify-between">
-              <span className="text-[11px] font-semibold tracking-[0.1em] text-sky-100/60">{copy.seats}</span>
-              <span className="font-mono text-xs text-sky-100/45">{seats} / 6</span>
-            </div>
-            <div className="mt-2 grid grid-cols-5 gap-1.5">
-              {SEAT_CHOICES.map((option) => {
-                const active = option === seats;
-                return (
-                  <button
-                    key={option}
-                    aria-pressed={active}
-                    className={`rounded-xl border py-3 text-base font-semibold transition ${
-                      active
-                        ? "border-sky-300/70 bg-sky-300/15 text-sky-50"
-                        : "border-white/10 bg-white/[0.06] text-sky-100/90 hover:border-white/30 hover:text-sky-50"
-                    }`}
-                    onClick={() => setSeats(option)}
-                    type="button"
-                  >
-                    {option}
-                  </button>
-                );
-              })}
-            </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-sky-100/45">
-              {seats === 2 ? copy.duoNote : copy.groupNote}
-            </p>
-          </div>
-          <button
-            className="w-full rounded-xl bg-gradient-to-b from-sky-300 to-sky-500 px-4 py-3 text-sm font-semibold text-slate-900 transition hover:brightness-105 active:translate-y-px"
-            onClick={() => onCreate(seats)}
-            type="button"
-          >
-            {copy.confirm}
-          </button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 function AboutDialog({
@@ -996,8 +858,6 @@ export default function Home({ locale = "en" }: { locale?: HomeLocale }) {
   const [isLanguageDialogOpen, setLanguageDialogOpen] = useState(false);
   const [isSettingsDialogOpen, setSettingsDialogOpen] = useState(false);
   const [isDiagnosticsDialogOpen, setDiagnosticsDialogOpen] = useState(false);
-  const [isCreateDialogOpen, setCreateDialogOpen] = useState(false);
-  const [pendingCode, setPendingCode] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -1019,49 +879,28 @@ export default function Home({ locale = "en" }: { locale?: HomeLocale }) {
   );
 
   const enterRoom = useCallback(
-    (roomId: string, capacity: number) => {
-      if (capacity <= 2) {
-        void navigate({
-          to: locale === "zh" ? "/zh/room/$roomId" : "/en/room/$roomId",
-          params: { roomId },
-        });
-        return;
-      }
+    (roomId: string) => {
       void navigate({
-        to: locale === "zh" ? "/zh/group/$roomId" : "/en/group/$roomId",
+        to: locale === "zh" ? "/zh/room/$roomId" : "/en/room/$roomId",
         params: { roomId },
-        search: { cap: capacity },
       });
     },
     [locale, navigate],
   );
 
-  // 输满六位先问服务端：已有房间直接按容量进对应页面，没人用过就让用户选人数创建。
   const handleRoomCodeComplete = useCallback(
     (roomId: string) => {
       trackInsightEvent("room_join_requested", { locale });
-      void fetchRoomStatus(roomId).then((status) => {
-        if (!status) {
-          enterRoom(roomId, 2);
-          return;
-        }
-        if (status.exists) {
-          enterRoom(roomId, status.capacity);
-          return;
-        }
-        trackInsightEvent("room_create_opened", { locale });
-        setPendingCode(roomId);
-        setCreateDialogOpen(true);
-      });
+      enterRoom(roomId);
     },
     [enterRoom, locale],
   );
 
-  const openCreateDialog = useCallback(() => {
-    trackInsightEvent("room_create_opened", { locale });
-    setPendingCode(randomRoomCode());
-    setCreateDialogOpen(true);
-  }, [locale]);
+  // 只有双人房：随机一个六位号直接进去，不必先占号。
+  const createRoom = useCallback(() => {
+    trackInsightEvent("room_join_requested", { locale });
+    enterRoom(randomRoomCode());
+  }, [enterRoom, locale]);
 
   return (
     <Layout title={copy.title}>
@@ -1159,11 +998,11 @@ export default function Home({ locale = "en" }: { locale?: HomeLocale }) {
           <div className="mt-6 flex justify-center">
             <button
               className="group inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-[11.5px] tracking-[0.04em] text-sky-100/60 backdrop-blur transition hover:border-white/20 hover:bg-white/[0.08] hover:text-sky-100/90"
-              onClick={openCreateDialog}
+              onClick={createRoom}
               type="button"
             >
               <span className="liushui-pill-dot" />
-              {locale === "zh" ? "创建房间 · 2-6 人" : "Create room · 2-6 people"}
+              {locale === "zh" ? "创建双人房 · 随机号码" : "Create a room · random code"}
             </button>
           </div>
         </div>
@@ -1191,17 +1030,6 @@ export default function Home({ locale = "en" }: { locale?: HomeLocale }) {
           locale={locale}
           onOpenChange={setDiagnosticsDialogOpen}
           open={isDiagnosticsDialogOpen}
-        />
-        <CreateRoomDialog
-          code={pendingCode}
-          locale={locale}
-          onCreate={(capacity) => {
-            setCreateDialogOpen(false);
-            if (pendingCode) enterRoom(pendingCode, capacity);
-          }}
-          onOpenChange={setCreateDialogOpen}
-          onReroll={() => setPendingCode(randomRoomCode())}
-          open={isCreateDialogOpen}
         />
         <HomeMascot locale={locale} />
         <div
