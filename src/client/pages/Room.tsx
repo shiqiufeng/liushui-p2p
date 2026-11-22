@@ -354,8 +354,8 @@ const detailTranslation: Record<string, string> = {
   "No data channel could be opened": "数据通道打不开",
   "Direct connection failed; retrying did not help.":
     "直连失败：多次重试仍未连通，请退出后重新进入房间。",
-  "Direct connection failed and no TURN relay is configured. Both sides are probably behind carrier NAT.":
-    "直连失败：双方大概率都在运营商网络后面，服务端又没配 TURN 中继，打不通。",
+  "Direct connection failed and no TURN relay is configured. Both sides are probably behind carrier NAT. Workaround: put both devices on the same Wi-Fi, or let one side share a mobile hotspot.":
+    "直连失败：双方都在运营商网络后面，服务端又没配 TURN 中继。临时办法：两台设备连同一个 Wi-Fi，或一方开手机热点让另一方连上。",
 };
 
 function localizedDetail(locale: RoomLocale, detail: string): string {

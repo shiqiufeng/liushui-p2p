@@ -37,14 +37,30 @@ Fork 本仓库后，在 Cloudflare Dashboard 的 **Workers & Pages** 中依次�
 | Build command | 留空 |
 | Deploy command | `pnpm deploy` |
 
-### 可选：配置 Cloudflare TURN
+### 可选：配置 TURN 中继
 
-未配置 TURN 时，应用仍会使用公共 STUN 尝试直连；如需在受限网络中使用中继，请先在 Cloudflare Dashboard 的 **Realtime** → **TURN** 创建凭证，然后在已部署 Worker 的 **Settings** → **Variables and Secrets** 中添加两个 **Secret**：
+没有 TURN 时，两端都处于运营商 NAT（CGNAT）后面就会连不上——界面上表现为「TURN 服务器 / 无可用 TURN 服务器，仅可建立直连」加「直连失败」。公共免费 TURN 目前基本不可用（实测 openrelay、freestun 都拿不到 relay 候选），所以中继必须自己配。
 
-| 名称 | 值 |
-| --- | --- |
-| `TURN_ID` | TURN 凭证的 Key ID |
-| `TURN_TOKEN` | TURN 凭证的 API Token |
+`POST /api/turn/credentials` 会自动识别下面任意一组配置，配好哪组用哪组，优先级从上到下：
+
+| 方式 | 需要设置的变量 | 说明 |
+| --- | --- | --- |
+| Cloudflare TURN（推荐） | `TURN_ID` + `TURN_TOKEN` | Dashboard → **Realtime** → **TURN** → **Create TURN App**，免费 1000GB/月 |
+| Metered TURN | `METERED_DOMAIN` + `METERED_API_KEY` | 形如 `xxxx.metered.live`，免费 500MB/月 |
+| 自建 coturn | `TURN_URLS` + `TURN_USERNAME` + `TURN_CREDENTIAL` | `TURN_URLS` 逗号分隔，支持 `turn:` / `turns:` |
+
+用 `wrangler secret put` 写入即可，secret 变更会自动发布新版本，不必重新构建：
+
+```bash
+wrangler secret put TURN_ID
+wrangler secret put TURN_TOKEN
+```
+
+写入后用 `GET /api/turn/status` 确认，返回 `{"configured":true,"provider":"cloudflare"}` 即生效：
+
+```bash
+curl https://<你的域名>/api/turn/status
+```
 
 后续更新时，在 GitHub 通过 **Sync fork** 拉取上游提交并合并到 `main`；Cloudflare 会自动构建并部署。
 
@@ -99,14 +115,14 @@ pnpm dev
 
 打开 [http://127.0.0.1:8787](http://127.0.0.1:8787)。
 
-可选的 Cloudflare TURN 配置写入 `.env`：
+可选的 TURN 配置写入 `.env`（任选一种，写法同上表）：
 
 ```dotenv
 TURN_ID=your_cloudflare_turn_key_id
 TURN_TOKEN=your_cloudflare_turn_api_token
 ```
 
-未配置 TURN 时，应用仍会使用公共 STUN 尝试直连；受限网络无法穿透时则不会启用中继。
+未配置 TURN 时，应用仍会使用公共 STUN 尝试直连；受限网络无法穿透时不会启用中继。
 
 ## 许可证
 

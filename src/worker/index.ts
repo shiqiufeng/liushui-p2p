@@ -4,6 +4,11 @@ import { Room } from "./room";
 type ApiBindings = Env & {
   TURN_ID?: string;
   TURN_TOKEN?: string;
+  METERED_DOMAIN?: string;
+  METERED_API_KEY?: string;
+  TURN_URLS?: string;
+  TURN_USERNAME?: string;
+  TURN_CREDENTIAL?: string;
 };
 type ApiContext = { Bindings: ApiBindings };
 
@@ -133,25 +138,56 @@ app.get("/api/rooms/:roomId/ws", async (context) => {
   return roomFor(context.env, roomId).fetch(context.req.raw);
 });
 
-app.post("/api/turn/credentials", async (context) => {
-  if (!context.env.TURN_ID || !context.env.TURN_TOKEN) {
-    return context.json(
-      {
-        error: "TURN credentials are not configured.",
-        message: "TURN_ID and TURN_TOKEN must be set as Worker secrets.",
-      },
-      500,
-    );
+type IceServer = { credential?: string; urls: string | string[]; username?: string };
+type TurnProvider = "cloudflare" | "metered" | "static";
+
+const TURN_SETUP_HINT =
+  "Configure one relay source: Cloudflare TURN (TURN_ID + TURN_TOKEN), Metered TURN (METERED_DOMAIN + METERED_API_KEY), or a static relay (TURN_URLS + TURN_USERNAME + TURN_CREDENTIAL).";
+
+function resolveTurnProvider(env: ApiBindings): TurnProvider | null {
+  if (env.TURN_ID && env.TURN_TOKEN) return "cloudflare";
+  if (env.METERED_DOMAIN && env.METERED_API_KEY) return "metered";
+  if (env.TURN_URLS && env.TURN_USERNAME && env.TURN_CREDENTIAL) return "static";
+  return null;
+}
+
+function normalizeIceServers(value: unknown): IceServer[] {
+  if (!value) return [];
+  const list = Array.isArray(value) ? value : [value];
+  return list.filter((entry): entry is IceServer => {
+    if (!entry || typeof entry !== "object") return false;
+    const urls = (entry as IceServer).urls;
+    return typeof urls === "string" || Array.isArray(urls);
+  });
+}
+
+async function buildTurnIceServers(env: ApiBindings, provider: TurnProvider, ttl: number): Promise<IceServer[]> {
+  if (provider === "static") {
+    const urls = (env.TURN_URLS ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    return urls.length > 0 ? [{ credential: env.TURN_CREDENTIAL, urls, username: env.TURN_USERNAME }] : [];
   }
 
-  const body = await context.req.json<{ ttl?: number }>();
-  const ttl = Math.min(Math.max(body.ttl ?? 86_400, 60), 86_400);
+  if (provider === "metered") {
+    const response = await fetch(
+      `https://${env.METERED_DOMAIN}/api/v1/turn/credentials?apiKey=${encodeURIComponent(env.METERED_API_KEY ?? "")}`,
+      { method: "GET" },
+    );
+    if (!response.ok) {
+      console.error(JSON.stringify({ event: "turn_credentials_failed", provider, status: response.status }));
+      throw new Error(`TURN API request failed (${response.status})`);
+    }
+    return normalizeIceServers(await response.json());
+  }
+
   const response = await fetch(
-    `https://rtc.live.cloudflare.com/v1/turn/keys/${context.env.TURN_ID}/credentials/generate-ice-servers`,
+    `https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_ID}/credentials/generate-ice-servers`,
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${context.env.TURN_TOKEN}`,
+        Authorization: `Bearer ${env.TURN_TOKEN}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ ttl }),
@@ -159,19 +195,55 @@ app.post("/api/turn/credentials", async (context) => {
   );
 
   if (!response.ok) {
-    console.error(JSON.stringify({ event: "turn_credentials_failed", status: response.status }));
-    return Response.json(
-      { error: "TURN credentials could not be generated.", message: "TURN API request failed." },
-      { status: response.status },
+    console.error(JSON.stringify({ event: "turn_credentials_failed", provider, status: response.status }));
+    throw new Error(`TURN API request failed (${response.status})`);
+  }
+
+  const body = (await response.json()) as { iceServers?: unknown };
+  return normalizeIceServers(body.iceServers ?? body);
+}
+
+app.get("/api/turn/status", (context) => {
+  const provider = resolveTurnProvider(context.env);
+  return context.json({ configured: provider !== null, provider: provider ?? "none" });
+});
+
+app.post("/api/turn/credentials", async (context) => {
+  const provider = resolveTurnProvider(context.env);
+  if (!provider) {
+    return context.json(
+      {
+        error: "TURN credentials are not configured.",
+        message: TURN_SETUP_HINT,
+        provider: "none",
+      },
+      500,
     );
   }
 
-  return new Response(response.body, {
-    headers: { "Content-Type": "application/json" },
-  });
+  const body = await context.req.json<{ ttl?: number }>().catch(() => ({ ttl: undefined }));
+  const ttl = Math.min(Math.max(body.ttl ?? 86_400, 60), 86_400);
+
+  try {
+    const iceServers = await buildTurnIceServers(context.env, provider, ttl);
+    if (iceServers.length === 0) {
+      return context.json({ error: "TURN provider returned no ICE servers.", provider }, 502);
+    }
+    return context.json({ expiresIn: ttl, iceServers, provider });
+  } catch (error) {
+    return context.json(
+      {
+        error: "TURN credentials could not be generated.",
+        message: error instanceof Error ? error.message : "Unknown TURN error.",
+        provider,
+      },
+      502,
+    );
+  }
 });
 
 app.all("/api/turn/credentials", () => methodNotAllowed("Method not allowed"));
+app.all("/api/turn/status", () => methodNotAllowed("Method not allowed"));
 
 app.onError((error, context) => {
   console.error(JSON.stringify({ event: "api_error", path: context.req.path, message: error.message }));

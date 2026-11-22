@@ -219,9 +219,11 @@ const PEER_CONNECT_TIMEOUT_RETRY_MS = 12_000;
 /** 连续失败多少次后停止自动重连，改为明确的失败结论。 */
 const MAX_DIRECT_FAILURES = 3;
 const DIRECT_FAILED = "Direct connection failed; retrying did not help.";
-const DIRECT_FAILED_NO_RELAY = "Direct connection failed and no TURN relay is configured. Both sides are probably behind carrier NAT.";
+const DIRECT_FAILED_NO_RELAY =
+  "Direct connection failed and no TURN relay is configured. Both sides are probably behind carrier NAT. Workaround: put both devices on the same Wi-Fi, or let one side share a mobile hotspot.";
 
 const PUBLIC_STUN_CANDIDATES: StunCandidate[] = [
+  { provider: "cloudflare", server: { urls: "stun:stun.cloudflare.com:3478" } },
   { provider: "google", server: { urls: "stun:stun.l.google.com:19302" } },
   { provider: "google", server: { urls: "stun:stun1.l.google.com:19302" } },
   { provider: "google", server: { urls: "stun:stun2.l.google.com:19302" } },
