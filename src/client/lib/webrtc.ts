@@ -360,7 +360,7 @@ async function fetchCloudflareIceServers(): Promise<CloudflareIceResponse> {
     const response = await fetch("/api/turn/credentials", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ttl: 3_600 }),
+      body: JSON.stringify({ ttl: 86_400 }),
     });
     const body = (await response.json().catch(() => ({}))) as TurnResponse;
     const latency = Math.round(performance.now() - startedAt);
