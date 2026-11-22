@@ -26,7 +26,7 @@ const PHOTO_BACKDROPS: readonly PhotoBackdrop[] = [
   { src: "/art/photo-aurora.webp", position: "50% 56%", opacity: 0.68, zh: "极光湖" },
   { src: "/art/photo-cyber.webp", position: "50% 30%", opacity: 0.6, zh: "赛博少女" },
   { src: "/art/photo-cat.webp", position: "46% 40%", opacity: 0.62, zh: "余晖" },
-  { src: "/art/photo-mono.webp", position: "58% 22%", opacity: 0.44, zh: "凝眸" },
+  { src: "/art/photo-mono.webp", position: "58% 22%", opacity: 0.34, zh: "凝眸" },
 ];
 
 const PHOTO_STORAGE_KEY = "liushui-ambient-photo";

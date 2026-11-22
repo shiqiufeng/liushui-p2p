@@ -58,6 +58,21 @@ Fork 本仓库后，在 Cloudflare Dashboard 的 **Workers & Pages** 中依次�
 
 前往 https://p2p.liushuile.dpdns.org 查看效果。
 
+### 绑定自定义域（Fork 后必改）
+
+`wrangler.jsonc` 里的 `routes` 已经指向本项目的域名：
+
+```jsonc
+"routes": [
+  { "pattern": "p2p.liushuile.dpdns.org", "custom_domain": true }
+],
+```
+
+这个域名在作者的 Cloudflare 账号下才有权限，**Fork 后不改会部署失败**，二选一：
+
+- 换成自己的域名（该域名所在的 zone 需托管在同一 Cloudflare 账号）：把 `pattern` 改成 `你的域名`，再 `pnpm deploy`，Cloudflare 会自动创建 DNS 记录并签发证书，无需手动操作。
+- 不绑定：删掉整个 `routes` 字段，部署后走 `https://<worker 名>.<你的子域>.workers.dev`。
+
 <img width="2478" height="1455" alt="image" src="https://github.com/user-attachments/assets/c842bdce-a80c-4760-947d-b601b1023b1f" />
 <img width="2478" height="1455" alt="image" src="https://github.com/user-attachments/assets/578cf5c6-5ec1-4ba5-a490-a3052cc9bc25" />
 <img width="2478" height="1455" alt="image" src="https://github.com/user-attachments/assets/90ba302f-a5ed-4e9a-98c0-f2fcc2f0484a" />
