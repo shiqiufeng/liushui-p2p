@@ -2,11 +2,25 @@ export const FILE_BLOCK_SIZE = 1_048_576;
 export const FILE_SEGMENT_SIZE = 64 * 1024;
 export const FILE_MEMORY_LIMIT = 512 * 1024 * 1024;
 const FILE_PERSISTENCE_THRESHOLD = 2 * 1024 * 1024 * 1024;
-export const FILE_INITIAL_CREDIT = 4 * FILE_BLOCK_SIZE;
-export const FILE_MAX_CREDIT = 16 * FILE_BLOCK_SIZE;
-const FILE_RELAY_INITIAL_CREDIT = 2 * FILE_BLOCK_SIZE;
-const FILE_DIRECT_MAX_IN_FLIGHT_BLOCKS = 4;
-const FILE_RELAY_MAX_IN_FLIGHT_BLOCKS = 2;
+export const FILE_INITIAL_CREDIT = 8 * FILE_BLOCK_SIZE;
+export const FILE_MAX_CREDIT = 32 * FILE_BLOCK_SIZE;
+const FILE_RELAY_INITIAL_CREDIT = 4 * FILE_BLOCK_SIZE;
+const FILE_DIRECT_MAX_IN_FLIGHT_BLOCKS = 8;
+const FILE_RELAY_MAX_IN_FLIGHT_BLOCKS = 4;
+/**
+ * 块级 ACK 看门狗。
+ *
+ * 可靠有序的 SCTP 理论上不会丢帧，但实际上 `channel.send()` 在缓冲打满时会
+ * 抛异常，而写入发生在异步加密链里，异常会被吞掉——于是某个 64 KiB 分片
+ * 名单上「已发送」、实际从未上线。整块因此永远凑不齐、永远不回 ACK，
+ * 发送端 4 块信用被永久占死，界面就停在几 KB/s。这里给每个块加一个截止
+ * 时间，超时就整块重发，把任何静默丢失都拉回来。
+ */
+const BLOCK_ACK_TIMEOUT_MS = 8_000;
+const BLOCK_ACK_MAX_ATTEMPTS = 4;
+const ACK_WATCHDOG_INTERVAL_MS = 1_000;
+/** 分片级进度推送的最小间隔 */
+const EMIT_INTERVAL_MS = 120;
 const FILE_HEADER_SIZE = 32;
 const FILE_MAGIC = 0x5a534631;
 const FILE_TEMP_PREFIX = "liushui-";
@@ -92,6 +106,7 @@ type FileRecord = FileTransferSnapshot & {
   lastSampleAt: number;
   lastSampleBytes: number;
   retryCount: Map<number, number>;
+  blockDeadlines: Map<number, number>;
   inFlightBlocks: Set<number>;
   pendingCompleted: Map<number, { data: ArrayBuffer; hash: string }>;
   nextBlockIndex: number;
@@ -177,6 +192,7 @@ function asRecord(file: File, direction: FileTransferDirection, id: string, gene
     name: file.name,
     receiverBlocks: new Map(),
     retryCount: new Map(),
+    blockDeadlines: new Map(),
     inFlightBlocks: new Set(),
     pendingCompleted: new Map(),
     nextBlockIndex: 0,
@@ -246,11 +262,45 @@ export class FileTransferManager {
   private sendAbortController = new AbortController();
   private disposed = false;
   private connectionRoute: "direct" | "relay" = "direct";
+  private ackWatchdog: number | undefined;
+  /** 每个传输上次推送给界面的时间，用于给「逐分片」更新节流 */
+  private lastEmitAt = new Map<string, number>();
 
   constructor(private readonly callbacks: FileTransferCallbacks) {
     this.worker = this.createWorker();
     this.temporaryFileCleanup = this.clearStaleTemporaryFiles();
+    this.ackWatchdog = window.setInterval(this.sweepStalledBlocks, ACK_WATCHDOG_INTERVAL_MS);
   }
+
+  /** 扫描超时未确认的块并整块重发；任何静默丢失都在这里被拉回 */
+  private sweepStalledBlocks = (): void => {
+    if (this.disposed) return;
+    const now = performance.now();
+    for (const record of this.files.values()) {
+      if (record.direction !== "outgoing" || record.state !== "transferring" || record.paused) continue;
+      if (!this.isCurrentRecord(record)) continue;
+      let timedOut = false;
+      for (const [blockIndex, deadline] of record.blockDeadlines) {
+        if (deadline > now) continue;
+        if (!record.inFlightBlocks.has(blockIndex) || record.sendTasks.has(blockIndex)) {
+          record.blockDeadlines.delete(blockIndex);
+          continue;
+        }
+        const attempts = (record.retryCount.get(blockIndex) ?? 0) + 1;
+        record.retryCount.set(blockIndex, attempts);
+        if (attempts > BLOCK_ACK_MAX_ATTEMPTS) {
+          record.blockDeadlines.delete(blockIndex);
+          this.fail(record, "Block acknowledgement timed out.");
+          timedOut = true;
+          break;
+        }
+        this.releaseInFlightBlock(record, blockIndex);
+        this.scheduleBlockSend(record, blockIndex);
+      }
+      if (timedOut) continue;
+      this.pumpOutgoing(record);
+    }
+  };
 
   private createWorker(): Worker {
     const worker = new Worker(new URL("./file-receive.worker.ts", import.meta.url), { type: "module" });
@@ -284,6 +334,10 @@ export class FileTransferManager {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    if (this.ackWatchdog !== undefined) {
+      window.clearInterval(this.ackWatchdog);
+      this.ackWatchdog = undefined;
+    }
     const { records, tasks } = this.invalidateSession(false);
     await Promise.allSettled(tasks);
     await Promise.allSettled(records.map((record) => this.removeTemporaryFileAfterWorkerReset(record)));
@@ -320,6 +374,7 @@ export class FileTransferManager {
       }
     }
     this.files.clear();
+    this.lastEmitAt.clear();
     this.incomingActivation = Promise.resolve(false);
     this.rejectPendingOperations();
 
@@ -349,6 +404,7 @@ export class FileTransferManager {
       record.blockSizes.clear();
       record.completedBlocks.clear();
       record.inFlightBlocks.clear();
+      record.blockDeadlines.clear();
       record.receiverBlocks.clear();
       record.retryCount.clear();
       record.pendingCompleted.clear();
@@ -606,7 +662,7 @@ export class FileTransferManager {
     }
     record.transferredBytes = Math.min(record.size, record.transferredBytes + segment.payload.byteLength);
     this.updateRate(record);
-    this.emit(record);
+    this.emitThrottled(record);
     this.worker.postMessage({ ...segment, transferId: record.receiverId, type: "segment" }, [segment.payload]);
   }
 
@@ -684,6 +740,7 @@ export class FileTransferManager {
       if (record.state === "complete" || record.state === "cancelled" || record.state === "error") continue;
       if (record.direction === "outgoing") {
         record.inFlightBlocks.clear();
+        record.blockDeadlines.clear();
         record.inFlightBytes = 0;
         record.blockSizes.clear();
         record.nextBlockIndex = 0;
@@ -710,6 +767,7 @@ export class FileTransferManager {
     const generation = this.sendGeneration;
     const signal = this.sendAbortController.signal;
     record.inFlightBlocks.add(blockIndex);
+    record.blockDeadlines.set(blockIndex, performance.now() + BLOCK_ACK_TIMEOUT_MS);
 
     let task!: Promise<void>;
     task = this.sendNextBlock(record, blockIndex, generation, signal)
@@ -754,7 +812,7 @@ export class FileTransferManager {
       if (!sent || !this.isActiveSend(record, generation, signal)) return;
       record.transferredBytes = Math.min(record.size, record.transferredBytes + payload.byteLength);
       this.updateRate(record);
-      this.emit(record);
+      this.emitThrottled(record);
     }
   }
 
@@ -768,6 +826,7 @@ export class FileTransferManager {
 
   private releaseInFlightBlock(record: FileRecord, blockIndex: number): void {
     record.inFlightBlocks.delete(blockIndex);
+    record.blockDeadlines.delete(blockIndex);
     record.inFlightBytes = Math.max(0, record.inFlightBytes - (record.blockSizes.get(blockIndex) ?? 0));
     record.blockSizes.delete(blockIndex);
   }
@@ -1042,13 +1101,24 @@ export class FileTransferManager {
   }
 
   private snapshot(record: FileRecord): FileTransferSnapshot {
-    const { file: _file, fileHandle: _handle, targetName: _targetName, transferStartedAt: _transferStartedAt, throughputEwma: _throughputEwma, completedBlocks: _blocks, receiverBlocks: _receiver, chunks: _chunks, retryCount: _retry, target: _target, blockHashes: _hashes, inFlightBlocks: _inFlight, pendingCompleted: _pending, nextBlockIndex: _next, blockSizes: _sizes, inFlightBytes: _inFlightBytes, remoteCredit: _credit, writeChain: _writeChain, generation: _generation, receiverId: _receiverId, receiverInitialization: _receiverInitialization, sendTasks: _sendTasks, ...snapshot } = record;
+    const { file: _file, fileHandle: _handle, targetName: _targetName, transferStartedAt: _transferStartedAt, throughputEwma: _throughputEwma, completedBlocks: _blocks, receiverBlocks: _receiver, chunks: _chunks, retryCount: _retry, target: _target, blockHashes: _hashes, inFlightBlocks: _inFlight, blockDeadlines: _deadlines, pendingCompleted: _pending, nextBlockIndex: _next, blockSizes: _sizes, inFlightBytes: _inFlightBytes, remoteCredit: _credit, writeChain: _writeChain, generation: _generation, receiverId: _receiverId, receiverInitialization: _receiverInitialization, sendTasks: _sendTasks, ...snapshot } = record;
     return snapshot;
   }
 
   private emit(record: FileRecord): void {
     if (!this.isCurrentRecord(record)) return;
+    this.lastEmitAt.set(record.id, performance.now());
     this.callbacks.onUpdate(this.snapshot(record));
+  }
+
+  /**
+   * 分片级进度推送节流。一个 1 MiB 块会产生 16 次分片回调，164 MiB 的文件
+   * 就是四万多次 setState；界面根本画不了这么快，反而把主线程占满、拖慢
+   * 加密与写入。按 120 ms 合并，块完成的里程碑仍然走未节流的 emit。
+   */
+  private emitThrottled(record: FileRecord): void {
+    if (performance.now() - (this.lastEmitAt.get(record.id) ?? 0) < EMIT_INTERVAL_MS) return;
+    this.emit(record);
   }
 
   private emitRemoved(id: string): void {
@@ -1059,6 +1129,7 @@ export class FileTransferManager {
     if (this.files.get(record.id) !== record) return;
     record.state = "cancelled";
     this.files.delete(record.id);
+    this.lastEmitAt.delete(record.id);
     if (record.url) {
       URL.revokeObjectURL(record.url);
       record.url = undefined;

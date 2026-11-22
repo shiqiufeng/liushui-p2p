@@ -1110,6 +1110,16 @@ type VideoTile = {
   stream: MediaStream;
 };
 
+/**
+ * 本地摄像头预览做水平镜像，与主流视频通话（FaceTime / 微信 / Zoom）一致：
+ * 人对着前置摄像头向左转头，屏幕上的自己也向左转，符合照镜子的直觉。
+ * 只翻转本地预览的渲染层；采集到的视频轨道和发给对端的画面不受影响，
+ * 对端看到的依然是正常朝向（你向左，对方看到的也是向左）。
+ */
+function isMirroredTile(id: VideoTile["id"]): boolean {
+  return id === "local-camera";
+}
+
 type SharedPlayback = {
   currentTime: number;
   duration: number;
@@ -1320,7 +1330,7 @@ function FloatingVideoSidecars({ media, locale, onFocus }: { media: MediaTranspo
           type="button"
           whileTap={{ scale: 0.98 }}
         >
-          <VideoStream className="block size-full object-contain" muted stream={tile.stream} />
+          <VideoStream className="block size-full object-contain" muted stream={tile.stream} style={isMirroredTile(tile.id) ? { transform: "scaleX(-1)" } : undefined} />
           <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-3 pb-2.5 pt-7 text-[10px] font-bold tracking-[0.08em] text-sky-50/85">{tile.label}</span>
           <span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/20 opacity-0 transition-opacity duration-200 group-hover:opacity-100"><span className="glass grid size-10 place-items-center !rounded-full text-sky-50"><RiZoomInLine aria-hidden="true" className="size-5" /></span></span>
         </motion.button>;
@@ -1622,7 +1632,7 @@ function VideoWorkspace({
               transition={{ layout: { damping: 30, mass: 0.8, stiffness: 280, type: "spring" } }}
               type="button"
             >
-              <VideoStream className="block size-full object-contain transition-transform duration-300" muted={tile.muted} stream={tile.stream} style={{ transform: isPrimary ? `rotate(${tileRotations[tile.id] ?? 0}deg)` : undefined }} />
+              <VideoStream className="block size-full object-contain transition-transform duration-300" muted={tile.muted} stream={tile.stream} style={{ transform: `${isMirroredTile(tile.id) ? "scaleX(-1) " : ""}rotate(${isPrimary ? (tileRotations[tile.id] ?? 0) : 0}deg)` }} />
               <span className={`${isPrimary ? "left-3 top-3 px-2 py-1 text-xs" : "left-2 top-2 px-1.5 py-0.5 text-[10px]"} absolute rounded-md bg-black/35 font-bold tracking-[0.08em] text-sky-50/80`}>{tile.label}</span>
               {!isPrimary ? <span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/20 opacity-0 transition-opacity duration-200 group-hover/thumb:opacity-100"><span className="glass grid size-12 place-items-center !rounded-full text-sky-50"><RiZoomInLine aria-hidden="true" className="size-6" /></span></span> : null}
             </motion.button>;

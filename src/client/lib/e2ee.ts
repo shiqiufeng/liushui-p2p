@@ -24,6 +24,12 @@ const TAG_BITS = 128;
 const HKDF_SALT = new TextEncoder().encode("liushui-e2ee-v1");
 const SAS_LABEL = "liushui-sas-v1";
 const MAX_COUNTER = 0xffffffff;
+/**
+ * 重放窗口大小。必须显著大于「一次突发内跨通道乱序的最大跨度」：
+ * 发送端一个 1 MiB 块会连续产生 16 条 bulk 封包，其间可能插入 control 心跳，
+ * 加上心跳与探测帧的序号跳变，几千的窗口足够覆盖，同时把内存控制在常数级。
+ */
+const REPLAY_WINDOW = 8192;
 
 export const E2EE_HANDSHAKE_TYPE = "e2ee-hello";
 
@@ -167,7 +173,17 @@ export class E2EESession {
   private sendKey: CryptoKey | null = null;
   private receiveKey: CryptoKey | null = null;
   private sendCounter = 0;
-  private receiveCounter = 0;
+  /**
+   * 重放防护使用「滑动窗口 + 已见集合」，而不是单一单调计数器。
+   *
+   * 原因是发送端所有 data channel 共用一条加密链、counter 全局递增，但接收端
+   * 各通道是独立的 SCTP 流：control 通道的心跳往往比 bulk 通道的分片先到。
+   * 若按「counter 必须严格大于已见最大值」判定，一条 control 心跳就会把水位
+   * 推高到几十，随后 bulk 通道全部序号更小的分片都被误判为重放并丢弃，
+   * 文件传输因此永远凑不齐一个块、永远收不到 ACK，表现为几 KB/s 的停滞。
+   */
+  private receiveWindowTop = 0;
+  private receiveSeen = new Set<number>();
   private sas: string | null = null;
   private listeners = new Set<(status: E2EEStatus) => void>();
 
@@ -245,7 +261,7 @@ export class E2EESession {
       this.sendKey = localIsLow ? keys.lowToHigh : keys.highToLow;
       this.receiveKey = localIsLow ? keys.highToLow : keys.lowToHigh;
       this.sendCounter = 0;
-      this.receiveCounter = 0;
+      this.resetReceiveWindow();
       this.sas = await this.computeSas(dtlsLocal, dtlsRemote);
       this.state = "ready";
       this.notify();
@@ -299,6 +315,30 @@ export class E2EESession {
   }
 
   /**
+   * 重放判定。允许窗口内乱序，拒绝重复与过旧。
+   *
+   * 窗口 = [receiveWindowTop - REPLAY_WINDOW, +∞)。窗口内只要求「没见过」，
+   * 这样 control 心跳先到、bulk 分片后到也不会互相误杀；同一个 counter 出现
+   * 第二次仍然会被拒绝，重放防护没有削弱。
+   */
+  private acceptCounter(counter: number): boolean {
+    if (counter < this.receiveWindowTop - REPLAY_WINDOW) return false;
+    if (this.receiveSeen.has(counter)) return false;
+    this.receiveSeen.add(counter);
+    if (counter >= this.receiveWindowTop) {
+      this.receiveWindowTop = counter + 1;
+      const floor = this.receiveWindowTop - REPLAY_WINDOW;
+      for (const seen of this.receiveSeen) if (seen < floor) this.receiveSeen.delete(seen);
+    }
+    return true;
+  }
+
+  private resetReceiveWindow(): void {
+    this.receiveWindowTop = 0;
+    this.receiveSeen.clear();
+  }
+
+  /**
    * 解密一条封包。
    * 返回 null 表示该数据不是 E2EE 封包（可能是握手前的明文或旧版本对端），交由调用方按原格式处理。
    */
@@ -308,7 +348,7 @@ export class E2EESession {
     const view = new DataView(packet);
     const flags = view.getUint8(1);
     const counter = bytesToCounter(view, 2);
-    if (counter < this.receiveCounter) throw new Error("E2EE replay detected");
+    if (!this.acceptCounter(counter)) throw new Error("E2EE replay detected");
     const nonce = buildNonce(counter);
     const ciphertext = packet.slice(HEADER_SIZE);
     const plaintext = await crypto.subtle.decrypt(
@@ -316,7 +356,6 @@ export class E2EESession {
       this.receiveKey,
       ciphertext,
     );
-    this.receiveCounter = counter + 1;
     const isText = (flags & FLAG_TEXT) !== 0;
     return { data: isText ? decoder.decode(plaintext) : plaintext, isText };
   }
@@ -328,7 +367,7 @@ export class E2EESession {
     this.sendKey = null;
     this.receiveKey = null;
     this.sendCounter = 0;
-    this.receiveCounter = 0;
+    this.resetReceiveWindow();
     this.sas = null;
     this.notify();
   }

@@ -136,6 +136,8 @@ type DataChannelName = "bulk" | "collaboration" | "control" | "interactive";
 const DATA_CHANNEL_NAMES: DataChannelName[] = ["control", "interactive", "bulk", "collaboration"];
 const DATA_CHANNEL_COUNT = DATA_CHANNEL_NAMES.length;
 const textEncoder = new TextEncoder();
+/** bulk 通道允许积压的上限（SCTP 缓冲 + 已入队未加密写完的字节） */
+const BULK_PENDING_LIMIT = 4 * 1024 * 1024;
 
 function isDataChannelName(label: string): label is DataChannelName {
   return DATA_CHANNEL_NAMES.includes(label as DataChannelName);
@@ -689,8 +691,14 @@ export class NativeWebRTCSession {
   private mediaTransport: MediaTransport;
   private readonly e2ee = new E2EESession();
   private e2eeSendChain: Promise<void> = Promise.resolve();
-  private e2eeReceiveChain: Promise<void> = Promise.resolve();
+  /**
+   * 每个通道一条独立的解密链。共用一条链时，bulk 通道几千个分片会把
+   * control 心跳和延迟探测一起排队，导致 RTT 读数失真、信令看起来像卡住。
+   */
+  private e2eeReceiveChains = new Map<DataChannelName, Promise<void>>();
   private e2eePendingInbound: Array<{ name: DataChannelName; data: ArrayBuffer }> = [];
+  /** 已入队但还没真正写入 bulk 通道的字节数，用于真正的背压判定 */
+  private bulkPendingBytes = 0;
 
   constructor(
     private readonly roomId: string,
@@ -819,6 +827,8 @@ export class NativeWebRTCSession {
     this.closeDataChannels();
     this.e2ee.reset();
     this.e2eePendingInbound = [];
+    this.e2eeReceiveChains.clear();
+    this.bulkPendingBytes = 0;
     this.mediaTransport.dispose();
     this.peer?.close();
     this.peer = null;
@@ -913,18 +923,31 @@ export class NativeWebRTCSession {
   private sendOnChannel(channelName: DataChannelName, data: string | ArrayBuffer | Blob): boolean {
     const channel = this.channels[channelName];
     if (channel?.readyState !== "open") return false;
-    if (channelName === "bulk" && channel.bufferedAmount > 3 * 1024 * 1024) return false;
+    const size = dataSize(data);
+    // bulk 走的是异步加密链，真正的 send 发生在若干微任务之后。只看
+    // bufferedAmount 会永远读到 0，于是整批分片一次性灌进队列、把 SCTP
+    // 缓冲打爆后大量 send 抛异常被静默丢弃。这里把「已入队未写出」的字节
+    // 一起计入水位，sendBulk 返回 false 让上层按真实压力重试。
+    if (channelName === "bulk") {
+      if (channel.bufferedAmount + this.bulkPendingBytes > BULK_PENDING_LIMIT) return false;
+      this.bulkPendingBytes += size;
+    }
     // 握手包必须明文（对端此时还没有密钥）；E2EE 就绪后其余消息全部走 AEAD 封装。
     if (!this.e2ee.ready || isE2EEHandshake(data)) {
+      if (channelName === "bulk") this.bulkPendingBytes = Math.max(0, this.bulkPendingBytes - size);
       return this.writeChannel(channelName, data, data);
     }
     const plaintext = data;
     // 串行入队，保证同一通道内的发送顺序与加密前的顺序一致
     this.e2eeSendChain = this.e2eeSendChain
       .then(async () => {
-        const payload = plaintext instanceof Blob ? await plaintext.arrayBuffer() : plaintext;
-        const sealed = await this.e2ee.seal(payload);
-        this.writeChannel(channelName, sealed, plaintext);
+        try {
+          const payload = plaintext instanceof Blob ? await plaintext.arrayBuffer() : plaintext;
+          const sealed = await this.e2ee.seal(payload);
+          this.writeChannel(channelName, sealed, plaintext);
+        } finally {
+          if (channelName === "bulk") this.bulkPendingBytes = Math.max(0, this.bulkPendingBytes - size);
+        }
       })
       .catch(() => {
         // 单条消息加密失败不应拖垮后续流量
@@ -1543,16 +1566,26 @@ export class NativeWebRTCSession {
     if (!this.e2ee.ready || this.e2eePendingInbound.length === 0) return;
     const pending = this.e2eePendingInbound;
     this.e2eePendingInbound = [];
-    for (const { name, data } of pending) {
-      this.e2eeReceiveChain = this.e2eeReceiveChain.then(() => this.dispatchInbound(name, data)).catch(() => { /* ignore */ });
-    }
+    for (const { name, data } of pending) this.enqueueInbound(name, data);
+  }
+
+  /** 按通道串行解密，保证同通道顺序与对端发送顺序一致 */
+  private enqueueInbound(name: DataChannelName, raw: unknown): void {
+    const previous = this.e2eeReceiveChains.get(name) ?? Promise.resolve();
+    const next = previous
+      .then(() => this.dispatchInbound(name, raw))
+      .catch(() => { /* 单条消息解密失败（篡改 / 重复）只丢弃该条 */ });
+    this.e2eeReceiveChains.set(name, next);
+    void next.then(() => {
+      if (this.e2eeReceiveChains.get(name) === next) this.e2eeReceiveChains.delete(name);
+    });
   }
 
   private async dispatchInbound(name: DataChannelName, raw: unknown): Promise<void> {
     if (raw instanceof ArrayBuffer && E2EESession.isSealedPacket(raw)) {
       if (!this.e2ee.ready) {
         // 握手尚未完成就先到的密文：暂存，密钥就绪后按序补处理
-        if (this.e2eePendingInbound.length < 64) this.e2eePendingInbound.push({ name, data: raw });
+        if (this.e2eePendingInbound.length < 1024) this.e2eePendingInbound.push({ name, data: raw });
         return;
       }
       const opened = await this.e2ee.open(raw);
@@ -1602,13 +1635,7 @@ export class NativeWebRTCSession {
     channel.onmessage = (event) => {
       if (this.channels[name] !== channel) return;
       this.receivedBytes += dataSize(event.data); this.updateDataTransferProgress();
-      const raw = event.data;
-      // 串行解密，保证处理顺序与对端发送顺序一致
-      this.e2eeReceiveChain = this.e2eeReceiveChain
-        .then(() => this.dispatchInbound(name, raw))
-        .catch(() => {
-          // 单条消息解密失败（篡改 / 重放 / 乱序）只丢弃该条
-        });
+      this.enqueueInbound(name, event.data);
     };
     channel.onclose = () => {
       if (this.channels[name] !== channel) return;
